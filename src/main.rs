@@ -23,7 +23,7 @@ where
     let mut rx: [u8; 2] = [0u8; 2];
     let ret_val = spi_device.transfer(&mut rx, &spi_data);
     log::info!(
-        "Device 1: Wrote [{:02x}, {:02x}], read [{:02x}, {:02x}]",
+        "Device 1: Wrote [0x{:02X}, 0x{:02X}], read [0x{:02X}, 0x{:02X}]",
         spi_data[0],
         spi_data[1],
         rx[0],
@@ -51,7 +51,7 @@ where
     let mut rx: [u8; 0] = [];
     let ret_val = spi_device.transfer(&mut rx, &spi_data);
     log::info!(
-        "Device 1: Wrote [{:02x}, {:02x}]]",
+        "Device 1: Wrote [0x{:02X}, 0x{:02X}]]",
         spi_data[0],
         spi_data[1]
     );
@@ -92,7 +92,7 @@ fn main() {
         match write_register(&mut device_1, register_address, channel, value) {
             Ok(_) => {
                 log::info!(
-                    "Device 1: Wrote register address {:02x} successfully",
+                    "Device 1: Wrote register address 0x{:02X} successfully",
                     register_address
                 );
             }
@@ -110,7 +110,7 @@ fn main() {
         //     match read_register(&mut device_1, register_address, 0u8) {
         //         Ok(_) => {
         //             log::info!(
-        //                 "Device 1: Read register address {:02x} successfully",
+        //                 "Device 1: Read register address 0x{:02X} successfully",
         //                 register_address
         //             );
         //         }
