@@ -1,3 +1,6 @@
+mod SC16IS752;
+use SC16IS752::SC16IS752Device;
+
 use std::borrow::Borrow;
 
 use esp_idf_hal::delay::FreeRtos;
@@ -5,58 +8,6 @@ use esp_idf_hal::spi::*;
 use esp_idf_hal::sys::EspError;
 use esp_idf_hal::units::*;
 
-fn read_register<'d, T>(
-    spi_device: &mut SpiDeviceDriver<'d, T>,
-    register_address: u8,
-    channel: u8,
-) -> Result<(), EspError>
-where
-    T: Borrow<SpiDriver<'d>> + 'd,
-{
-    let write = false;
-    let write_byte = if write { 0x00u8 } else { 0x80u8 };
-    let spi_data: [u8; 2] = [
-        write_byte | ((register_address << 3) | (channel << 1)),
-        0xFFu8,
-    ];
-
-    let mut rx: [u8; 2] = [0u8; 2];
-    let ret_val = spi_device.transfer(&mut rx, &spi_data);
-    log::info!(
-        "Device 1: Wrote [0x{:02X}, 0x{:02X}], read [0x{:02X}, 0x{:02X}]",
-        spi_data[0],
-        spi_data[1],
-        rx[0],
-        rx[1]
-    );
-    ret_val
-}
-
-fn write_register<'d, T>(
-    spi_device: &mut SpiDeviceDriver<'d, T>,
-    register_address: u8,
-    channel: u8,
-    value: u8,
-) -> Result<(), EspError>
-where
-    T: Borrow<SpiDriver<'d>> + 'd,
-{
-    let write = true;
-    let write_byte = if write { 0x00u8 } else { 0x80u8 };
-    let spi_data: [u8; 2] = [
-        write_byte | ((register_address << 3) | (channel << 1)),
-        value,
-    ];
-
-    let mut rx: [u8; 0] = [];
-    let ret_val = spi_device.transfer(&mut rx, &spi_data);
-    log::info!(
-        "Device 1: Wrote [0x{:02X}, 0x{:02X}]]",
-        spi_data[0],
-        spi_data[1]
-    );
-    ret_val
-}
 
 // build: cargo build
 // flash: espflash flash target/riscv32imc-esp-espidf/debug/c3-ru-mamu --monitor
@@ -79,25 +30,36 @@ fn main() {
 
     println!("Starting SPI loopback test");
 
+
     let driver =
         SpiDriver::new::<SPI2>(spi, sclk, mosi, Some(miso), &SpiDriverConfig::new()).unwrap();
 
     let config_1 = config::Config::new().baudrate(1.MHz().into());
-    let mut device_1 = SpiDeviceDriver::new(&driver, Some(cs), &config_1).unwrap();
+    let device_1 = SpiDeviceDriver::new(&driver, Some(cs), &config_1).unwrap();
+
+    let mut sc16is752 = SC16IS752Device::new(device_1);
+    // let uart1_config = SC16IS752::UARTConfig {
+    //     baud_rate: 9600,
+    //     data_bits: 8,
+    //     stop_bits: 1,
+    //     parity: esp_idf_hal::uart::config::Parity::ParityNone,
+
+    // };
+    // let uart1_device = SC16IS752::SC16IS752UART::new(sc16is752, uart1_config).unwrap();
 
     let register_address = 0x0A;
     let channel = 0u8;
     let mut value = 0;
     loop {
-        match write_register(&mut device_1, register_address, channel, value) {
+        match sc16is752.write_register(register_address, channel, value) {
             Ok(_) => {
                 log::info!(
-                    "Device 1: Wrote register address 0x{:02X} successfully",
+                    "Device 1: Wrote register address 0x{:02X} successfully\n",
                     register_address
                 );
             }
             Err(_) => {
-                log::info!("Oh no Error!");
+                log::info!("Oh no Error\n");
             }
         }
         if value == 0 {
@@ -106,21 +68,5 @@ fn main() {
             value = 0;
         }
         FreeRtos::delay_ms(500);
-        // for register_address in 0u8..0xFu8 {
-        //     match read_register(&mut device_1, register_address, 0u8) {
-        //         Ok(_) => {
-        //             log::info!(
-        //                 "Device 1: Read register address 0x{:02X} successfully",
-        //                 register_address
-        //             );
-        //         }
-        //         Err(_) => {
-        //             log::info!("Oh no Error!");
-        //         }
-        //     }
-
-        //     FreeRtos::delay_ms(500);
-        // }
-        log::info!("\n");
     }
 }
