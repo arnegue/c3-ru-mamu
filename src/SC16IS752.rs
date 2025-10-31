@@ -4,7 +4,7 @@ use esp_idf_hal::{
     uart::config::Parity,
     units::Hertz,
 };
-use std::borrow::Borrow;
+use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 
 pub enum SC16IS752Registers {
     RHR_THR = 0x0,   // Receive Holding Register / Transmit Holding Register
@@ -112,7 +112,7 @@ pub struct SC16IS752UART<'d, T>
 where
     T: Borrow<SpiDriver<'d>> + 'd,
 {
-    sc16is752: &'d mut SC16IS752Device<'d, T>,
+    sc16is752: Rc<RefCell<SC16IS752Device<'d, T>>>,
     uart_config: UARTConfig,
     channel: bool,
 }
@@ -122,23 +122,29 @@ where
     T: Borrow<SpiDriver<'d>> + 'd,
 {
     pub fn new(
-        sc16is752: &'d mut SC16IS752Device<'d, T>,
+        sc16is752: Rc<RefCell<SC16IS752Device<'d, T>>>,
         uart_config: UARTConfig,
         channel: bool,
     ) -> Result<Self, EspError>
     where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
+        Ok(Self {
+            sc16is752,
+            uart_config,
+            channel,
+        })
+        /*
         let register_address = SC16IS752Registers::IODir;
         let value = 0;
-        match sc16is752.write_register(register_address, channel, value) {
+        match sc16is752.borrow_mut().write_register(register_address, channel, value) {
             Ok(_) => Ok(Self {
                 sc16is752,
                 uart_config,
                 channel,
             }),
             Err(e) => Err(e),
-        }
+        }*/
     }
 
     pub fn configure_uart(&mut self) -> Result<(), EspError>
@@ -148,17 +154,17 @@ where
         // Set Baudrate
         let register_address = SC16IS752Registers::MCR;
         let prescaler: u8;
-        match self.sc16is752.read_register(SC16IS752Registers::MCR, false) {
+        let mut borrowd_sc16is752 = self.sc16is752.borrow_mut();
+        match borrowd_sc16is752.read_register(SC16IS752Registers::MCR, false) {
             Ok(prescaler_val) => {
                 prescaler = prescaler_val;
             }
             Err(e) => return Err(e),
         }
 
-        let upper_divisor: u32 = (self.sc16is752.frequency / (prescaler as u32)).into();
+        let upper_divisor: u32 = (borrowd_sc16is752.frequency / (prescaler as u32)).into();
         let divisor: u16 = ((upper_divisor) / (16u32 * (self.uart_config.baud_rate as u32))) as u16;
 
-        self.sc16is752
-            .write_register(register_address, self.channel, (divisor & 0xFF) as u8)
+        borrowd_sc16is752.write_register(register_address, self.channel, (divisor & 0xFF) as u8)
     }
 }
