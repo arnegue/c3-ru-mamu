@@ -1,14 +1,13 @@
 mod SC16IS752;
 use SC16IS752::SC16IS752Device;
 
-use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use esp_idf_hal::delay::FreeRtos;
-use esp_idf_hal::{spi::*, uart};
 use esp_idf_hal::sys::EspError;
 use esp_idf_hal::units::*;
+use esp_idf_hal::spi::*;
 
 // build: cargo build
 // flash: espflash flash target/riscv32imc-esp-espidf/debug/c3-ru-mamu --monitor
@@ -57,11 +56,15 @@ fn main() {
     loop {
         //uart1_device.configure_uart().unwrap();
         //uart2_device.configure_uart().unwrap();
-        match uart1_device.toggle_led( led_value) {
+        let result: Result<(), EspError>;
+        if led_value == 0 {
+            result = uart1_device.toggle_led(led_value);
+        } else {
+            result = uart2_device.toggle_led(led_value);
+        }
+        match result {
             Ok(_) => {
-                log::info!(
-                    "Device 1: Toggled LED successfully\n",
-                );
+                log::info!("Device 1: Toggled LED successfully\n",);
             }
             Err(_) => {
                 log::info!("Oh no Error\n");
