@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use esp_idf_hal::delay::FreeRtos;
-use esp_idf_hal::spi::*;
+use esp_idf_hal::{spi::*, uart};
 use esp_idf_hal::sys::EspError;
 use esp_idf_hal::units::*;
 
@@ -55,9 +55,9 @@ fn main() {
     let mut led_value = 0;
 
     loop {
-        uart1_device.configure_uart().unwrap();
-        uart2_device.configure_uart().unwrap();
-        /* match sc16is752.set_gpio_direction(led_value) {
+        //uart1_device.configure_uart().unwrap();
+        //uart2_device.configure_uart().unwrap();
+        match uart1_device.toggle_led( led_value) {
             Ok(_) => {
                 log::info!(
                     "Device 1: Toggled LED successfully\n",
@@ -66,7 +66,7 @@ fn main() {
             Err(_) => {
                 log::info!("Oh no Error\n");
             }
-        }*/
+        }
         led_value = if led_value == 0 { 1 } else { 0 };
         FreeRtos::delay_ms(500);
     }

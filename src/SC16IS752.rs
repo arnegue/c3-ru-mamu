@@ -6,6 +6,7 @@ use esp_idf_hal::{
 };
 use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 
+#[derive(Debug, Copy, Clone)]
 pub enum SC16IS752Registers {
     RHR_THR = 0x0,   // Receive Holding Register / Transmit Holding Register
     IER = 0x1,       // Interrupt Enable Register
@@ -166,5 +167,12 @@ where
         let divisor: u16 = ((upper_divisor) / (16u32 * (self.uart_config.baud_rate as u32))) as u16;
 
         borrowd_sc16is752.write_register(register_address, self.channel, (divisor & 0xFF) as u8)
+    }
+
+    pub fn toggle_led(&mut self, state: u8) -> Result<(), EspError>
+    where
+        T: Borrow<SpiDriver<'d>> + 'd,
+    {
+        self.sc16is752.borrow_mut().set_gpio_direction(state)
     }
 }
