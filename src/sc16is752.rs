@@ -155,18 +155,18 @@ where
         // Set Baudrate
         let register_address = SC16IS752Registers::MCR;
         let prescaler: u8;
-        let mut borrowd_sc16is752 = self.sc16is752.borrow_mut();
-        match borrowd_sc16is752.read_register(SC16IS752Registers::MCR, false) {
+        let mut borrowed_sc16is752 = self.sc16is752.borrow_mut();
+        match borrowed_sc16is752.read_register(SC16IS752Registers::MCR, false) {
             Ok(prescaler_val) => {
                 prescaler = prescaler_val;
             }
             Err(e) => return Err(e),
         }
 
-        let upper_divisor: u32 = (borrowd_sc16is752.frequency / (prescaler as u32)).into();
+        let upper_divisor: u32 = (borrowed_sc16is752.frequency / (prescaler as u32)).into();
         let divisor: u16 = ((upper_divisor) / (16u32 * (self.uart_config.baud_rate as u32))) as u16;
 
-        borrowd_sc16is752.write_register(register_address, self.channel, (divisor & 0xFF) as u8)
+        borrowed_sc16is752.write_register(register_address, self.channel, (divisor & 0xFF) as u8)
     }
 
     pub fn toggle_led(&mut self, state: u8) -> Result<(), EspError>

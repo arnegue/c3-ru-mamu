@@ -1,5 +1,5 @@
-mod SC16IS752;
-use SC16IS752::SC16IS752Device;
+mod sc16is752;
+use sc16is752::SC16IS752Device;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -40,16 +40,16 @@ fn main() {
         device_1,
         1843200.Hz().into(),
     )));
-    let uart1_config = SC16IS752::UARTConfig {
+    let uart1_config = sc16is752::UARTConfig {
         baud_rate: 9600,
         data_bits: 8,
         stop_bits: 1,
         parity: esp_idf_hal::uart::config::Parity::ParityNone,
     };
     let mut uart1_device =
-        SC16IS752::SC16IS752UART::new(sc16is752_device.clone(), uart1_config, false).unwrap();
+        sc16is752::SC16IS752UART::new(sc16is752_device.clone(), uart1_config, false).unwrap();
     let mut uart2_device =
-        SC16IS752::SC16IS752UART::new(sc16is752_device.clone(), uart1_config, true).unwrap();
+        sc16is752::SC16IS752UART::new(sc16is752_device.clone(), uart1_config, true).unwrap();
 
     let mut led_value = 0;
 
