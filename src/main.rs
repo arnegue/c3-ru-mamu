@@ -1,13 +1,16 @@
 mod sc16is752;
+use esp_idf_hal::uart::config::StopBits;
 use sc16is752::SC16IS752Device;
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use esp_idf_hal::delay::FreeRtos;
+use esp_idf_hal::spi::*;
 use esp_idf_hal::sys::EspError;
 use esp_idf_hal::units::*;
-use esp_idf_hal::spi::*;
+
+use crate::sc16is752::UARTParity;
 
 // build: cargo build
 // flash: espflash flash target/riscv32imc-esp-espidf/debug/c3-ru-mamu --monitor
@@ -28,6 +31,8 @@ fn main() {
     let mosi = peripherals.pins.gpio8; // SDO
     let cs = peripherals.pins.gpio6;
 
+    let reset_pin = peripherals.pins.gpio4; // RST
+
     println!("Starting SPI loopback test");
 
     let driver =
@@ -36,41 +41,57 @@ fn main() {
     let config_1 = config::Config::new().baudrate(1.MHz().into());
     let device_1 = SpiDeviceDriver::new(&driver, Some(cs), &config_1).unwrap();
 
-    let mut sc16is752_device = Rc::new(RefCell::new(SC16IS752Device::new(
+    let sc16is752_device = Rc::new(RefCell::new(SC16IS752Device::new(
         device_1,
+        reset_pin,
         1843200.Hz().into(),
     )));
     let uart1_config = sc16is752::UARTConfig {
         baud_rate: 9600,
         data_bits: 8,
-        stop_bits: 1,
-        parity: esp_idf_hal::uart::config::Parity::ParityNone,
+        stop_bits: StopBits::STOP1,
+        parity: UARTParity::None,
     };
+    sc16is752_device.borrow_mut().hard_reset();
+
     let mut uart1_device =
         sc16is752::SC16IS752UART::new(sc16is752_device.clone(), uart1_config, false).unwrap();
-    let mut uart2_device =
+    let mut _uart2_device =
         sc16is752::SC16IS752UART::new(sc16is752_device.clone(), uart1_config, true).unwrap();
 
-    let mut led_value = 0;
-
+    let mut temp_write_byte: u8 = 33;
+    let mut current_led = true;
     loop {
-        //uart1_device.configure_uart().unwrap();
-        //uart2_device.configure_uart().unwrap();
-        let result: Result<(), EspError>;
-        if led_value == 0 {
-            result = uart1_device.toggle_led(led_value);
-        } else {
-            result = uart2_device.toggle_led(led_value);
+        // Toggle LED to show activity
+        sc16is752_device
+            .borrow_mut()
+            .set_gpio_direction(current_led as u8)
+            .unwrap();
+        current_led = !current_led;
+
+        // Read a byte
+        match uart1_device.read_byte() {
+            Ok(read_byte) => {
+                log::info!("Device 1: Read byte: {read_byte}");
+            }
+            Err(_) => {}
         }
-        match result {
+
+        // Write a byte
+        match uart1_device.write_byte(temp_write_byte) {
             Ok(_) => {
-                log::info!("Device 1: Toggled LED successfully\n",);
+                let temp_write_char: char = temp_write_byte as char;
+                log::info!("Device 1: Wrote byte: {temp_write_char}");
             }
-            Err(_) => {
-                log::info!("Oh no Error\n");
+            Err(e) => {
+                log::info!("Device 1: Failed to write byte: {e}");
             }
         }
-        led_value = if led_value == 0 { 1 } else { 0 };
+        temp_write_byte = temp_write_byte + 1;
+        if temp_write_byte >= 127 {
+            temp_write_byte = 33;
+        }
+
         FreeRtos::delay_ms(500);
     }
 }
