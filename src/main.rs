@@ -29,7 +29,7 @@ fn main() {
     let sclk = peripherals.pins.gpio5;
     let miso = peripherals.pins.gpio7; // SDI
     let mosi = peripherals.pins.gpio8; // SDO
-    let cs = peripherals.pins.gpio6;
+    let cs = peripherals.pins.gpio3; // CS (old device is pin 6)
 
     let reset_pin = peripherals.pins.gpio4; // RST
 
@@ -68,6 +68,8 @@ fn main() {
             .set_gpio_direction(current_led as u8)
             .unwrap();
         current_led = !current_led;
+
+        uart1_device.check_line_status().unwrap();
 
         // Read a byte
         match uart1_device.read_byte() {

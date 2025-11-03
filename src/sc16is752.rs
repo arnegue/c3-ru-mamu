@@ -162,7 +162,7 @@ where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
         // Create instance
-        let mut new_instance = Self {
+        let new_instance = Self {
             sc16is752,
             uart_config,
             channel,
@@ -176,10 +176,12 @@ where
     }
 
     // Configures every part chosen in uart-config
-    fn configure_uart(&mut self) -> Result<(), EspError>
+    fn configure_uart(&self) -> Result<(), EspError>
     where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
+        self.soft_reset().unwrap();
+
         self.set_word_length().unwrap();
 
         self.set_stop_bit().unwrap();
@@ -188,11 +190,13 @@ where
 
         self.set_baudrate().unwrap();
 
-        self.enable_fifo()
+        self.enable_fifo().unwrap();
+
+        self.enable_transmition()
     }
 
     // Sets word-length (data-bits). Only 5, 6, 7, 8 is supported
-    fn set_word_length(&mut self) -> Result<(), EspError>
+    fn set_word_length(&self) -> Result<(), EspError>
     where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
@@ -215,21 +219,21 @@ where
         borrowed_sc16is752.write_register(
             SC16IS752Registers::LCR,
             self.channel,
-            temporary_lcr | 0x80,
+            temporary_lcr,
         )
     }
 
     // Sets baudrate to device
-    fn set_baudrate(&mut self) -> Result<(), EspError>
+    fn set_baudrate(&self) -> Result<(), EspError>
     where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
         // Calulate Baudrate
         let mut borrowed_sc16is752 = self.sc16is752.borrow_mut();
-        let prescaler = borrowed_sc16is752
+        let mcr = borrowed_sc16is752
             .read_register(SC16IS752Registers::MCR, self.channel)
             .unwrap();
-        let prescaler_value: u32 = match prescaler {
+        let prescaler_value: u32 = match mcr >> 7 {
             0 => 1,
             1 => 4,
             _ => {
@@ -296,7 +300,7 @@ where
         borrowed_sc16is752.write_register(
             SC16IS752Registers::LCR,
             self.channel,
-            temporary_lcr | 0x80,
+            temporary_lcr,
         )
     }
 
@@ -322,12 +326,12 @@ where
         borrowed_sc16is752.write_register(
             SC16IS752Registers::LCR,
             self.channel,
-            temporary_lcr | 0x80,
+            temporary_lcr,
         )
     }
 
     // Makes a software reset
-    pub fn soft_reset(&mut self) -> Result<(), EspError>
+    pub fn soft_reset(&self) -> Result<(), EspError>
     where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
@@ -343,16 +347,30 @@ where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
         let mut borrowed_sc16is752 = self.sc16is752.borrow_mut();
-        let mut temporary_fcr = borrowed_sc16is752
-            .read_register(SC16IS752Registers::FCR_IIR, self.channel)
-            .unwrap();
-
-        temporary_fcr |= 1;
+        let frc_val = 0b00000111; // Enable FIFO, reset RX and TX FIFO
 
         borrowed_sc16is752.write_register(
             SC16IS752Registers::LCR,
             self.channel,
-            temporary_fcr | 0x80,
+            frc_val,
+        )
+    }
+
+    fn enable_transmition(&self) -> Result<(), EspError>
+    where
+        T: Borrow<SpiDriver<'d>> + 'd,
+    {
+        let mut borrowed_sc16is752 = self.sc16is752.borrow_mut();
+        let mut efcr = borrowed_sc16is752
+            .read_register(SC16IS752Registers::EFCR, self.channel)
+            .unwrap();
+
+        efcr |= 0b11111001; // Enable TX and RX
+
+        borrowed_sc16is752.write_register(
+            SC16IS752Registers::EFCR,
+            self.channel,
+            efcr,
         )
     }
 
@@ -375,22 +393,25 @@ where
     }
 
     // Reads a byte from RX-FIFO-Buffer
-    pub fn read_byte(&mut self) -> Result<u8, EspError>
+    pub fn read_byte(&self) -> Result<u8, EspError>
     where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
-        if self.get_rx_fifo_fill_level().unwrap() == 0 {
-            let channel = self.channel;
-            log::warn!("Device {channel}: Cannot read. No space RX-TX-buffer");
+        let available_bytes = self.get_rx_fifo_fill_level().unwrap();
+        let channel = self.channel;
+        if available_bytes == 0 {
+            log::warn!("Device {channel}: Cannot read. No byte available in RX-buffer");
             return Err(EspError::from_non_zero(NonZero::new(1).unwrap()));
+        } else {
+            log::info!("Device {channel}: Available bytes in RX-buffer: {available_bytes}");
         }
 
         let mut borrowed_sc16is752 = self.sc16is752.borrow_mut();
         borrowed_sc16is752.read_register(SC16IS752Registers::RHR_THR_DLL, self.channel)
     }
 
-    // Writes a byte from TX-FIFO-Buffer
-    pub fn write_byte(&mut self, byte: u8) -> Result<(), EspError>
+    // Writes a byte to TX-FIFO-Buffer
+    pub fn write_byte(&self, byte: u8) -> Result<(), EspError>
     where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
@@ -402,5 +423,45 @@ where
 
         let mut borrowed_sc16is752 = self.sc16is752.borrow_mut();
         borrowed_sc16is752.write_register(SC16IS752Registers::RHR_THR_DLL, self.channel, byte)
+    }
+
+    pub fn check_line_status(&self) -> Result<(), EspError>
+    where
+        T: Borrow<SpiDriver<'d>> + 'd,
+    {
+        let mut borrowed_sc16is752 = self.sc16is752.borrow_mut();
+        let lsr_val = borrowed_sc16is752
+            .read_register(SC16IS752Registers::LSR, self.channel)
+            .unwrap();
+
+        if lsr_val & 1 != 0 {
+            log::warn!("Data Ready");
+        }
+        else if lsr_val & 2 != 0 {
+            return Err(EspError::from_non_zero(NonZero::new(1).unwrap())); // Overrun Error
+        }
+        else if lsr_val & 4 != 0 {
+            return Err(EspError::from_non_zero(NonZero::new(1).unwrap())); // Parity Error
+        }
+        else if lsr_val & 8 != 0 {
+            return Err(EspError::from_non_zero(NonZero::new(1).unwrap())); // Framing Error
+        }
+        else if lsr_val & 16 != 0 {
+            log::warn!("Break Interrupt");
+        }
+        else if lsr_val & 32 != 0 {
+            log::warn!("Transmitter Holding Register Empty");
+        }
+        else if lsr_val & 64 != 0 {
+            log::warn!("Transmitter Empty");
+        }
+        else if lsr_val & 128 != 0 {
+            return Err(EspError::from_non_zero(NonZero::new(1).unwrap())); // FIFO Error
+        } else {
+            // TODO debug
+            log::info!("No Line Status Error");
+        }
+
+        Ok(())
     }
 }
