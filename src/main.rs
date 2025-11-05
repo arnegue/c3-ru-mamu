@@ -1,16 +1,16 @@
 mod sc16is752;
-use esp_idf_hal::uart::config::StopBits;
-use sc16is752::SC16IS752Device;
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
+use ::sc16is752::Channel;
+use ::sc16is752::Parity;
+use ::sc16is752::PinMode;
+use ::sc16is752::PinState;
+use ::sc16is752::SC16IS752spi;
+use ::sc16is752::UartConfig;
+use ::sc16is752::GPIO;
+use ::sc16is752::SC16IS752;
 use esp_idf_hal::delay::FreeRtos;
 use esp_idf_hal::spi::*;
-use esp_idf_hal::sys::EspError;
 use esp_idf_hal::units::*;
-
-use crate::sc16is752::UARTParity;
 
 // build: cargo build
 // flash: espflash flash target/riscv32imc-esp-espidf/debug/c3-ru-mamu --monitor
@@ -26,61 +26,68 @@ fn main() {
     let peripherals = Peripherals::take().unwrap();
     let spi = peripherals.spi2;
 
-    let sclk = peripherals.pins.gpio5;
+    let sclk = peripherals.pins.gpio5; // CLK
     let miso = peripherals.pins.gpio7; // SDI
     let mosi = peripherals.pins.gpio8; // SDO
     let cs = peripherals.pins.gpio3; // CS (old device is pin 6)
 
+    let isr = peripherals.pins.gpio2; // IRQ
     let reset_pin = peripherals.pins.gpio4; // RST
 
     println!("Starting SPI loopback test");
 
+    // SPI only
     let driver =
         SpiDriver::new::<SPI2>(spi, sclk, mosi, Some(miso), &SpiDriverConfig::new()).unwrap();
 
     let config_1 = config::Config::new().baudrate(1.MHz().into());
     let device_1 = SpiDeviceDriver::new(&driver, Some(cs), &config_1).unwrap();
 
-    let sc16is752_device = Rc::new(RefCell::new(SC16IS752Device::new(
-        device_1,
-        reset_pin,
-        1843200.Hz().into(),
-    )));
-    let uart1_config = sc16is752::UARTConfig {
-        baud_rate: 9600,
-        data_bits: 8,
-        stop_bits: StopBits::STOP1,
-        parity: UARTParity::None,
-    };
-    sc16is752_device.borrow_mut().hard_reset();
+    // SC16IS752 setup
+    let spi_bus = SC16IS752spi::new(device_1);
+    let mut sc16is752_a = SC16IS752::new(spi_bus, 1843200.Hz().into());
 
-    let mut uart1_device =
-        sc16is752::SC16IS752UART::new(sc16is752_device.clone(), uart1_config, false).unwrap();
-    let mut _uart2_device =
-        sc16is752::SC16IS752UART::new(sc16is752_device.clone(), uart1_config, true).unwrap();
+    let device_a_config = UartConfig::new(9600, 8, Parity::NoParity, 1);
+
+    sc16is752_a
+        .initialise_uart(Channel::A, device_a_config)
+        .unwrap();
+    sc16is752_a.gpio_set_pin_mode(GPIO::GPIO0, PinMode::Output);
 
     let mut temp_write_byte: u8 = 33;
-    let mut current_led = true;
+    let mut current_led = PinState::High;
     loop {
+        let bool_val = match current_led {
+            PinState::High => true,
+            PinState::Low => false,
+        };
         // Toggle LED to show activity
-        sc16is752_device
-            .borrow_mut()
-            .set_gpio_direction(current_led as u8)
-            .unwrap();
-        current_led = !current_led;
-
-        uart1_device.check_line_status().unwrap();
+        match sc16is752_a.gpio_set_pin_state(GPIO::GPIO0, current_led) {
+            Ok(_) => {
+                log::info!("Device 1: Set LED to: {bool_val}");
+            }
+            Err(e) => {
+                log::info!("Device 1: Failed to set LED: {e}");
+            }
+        }
+        current_led = match bool_val {
+            true => PinState::Low,
+            false => PinState::High,
+        };
 
         // Read a byte
-        match uart1_device.read_byte() {
-            Ok(read_byte) => {
-                log::info!("Device 1: Read byte: {read_byte}");
+        let mut my_read_buffer = [0u8; 23];
+        match sc16is752_a.read(Channel::A, &mut my_read_buffer) {
+            Ok(read_bytes) => {
+                let buf_str = buffer_to_string(my_read_buffer.as_ref(), read_bytes);
+                log::info!("Device 1: Read {read_bytes} bytes: {buf_str}");
             }
             Err(_) => {}
         }
 
         // Write a byte
-        match uart1_device.write_byte(temp_write_byte) {
+        let my_buffer = [temp_write_byte; 1];
+        match sc16is752_a.write(Channel::A, &my_buffer) {
             Ok(_) => {
                 let temp_write_char: char = temp_write_byte as char;
                 log::info!("Device 1: Wrote byte: {temp_write_char}");
@@ -96,4 +103,12 @@ fn main() {
 
         FreeRtos::delay_ms(500);
     }
+}
+
+fn buffer_to_string(buffer: &[u8], size: usize) -> String {
+    let mut result = String::new();
+    for i in 0..size {
+        result.push(buffer[i] as char);
+    }
+    result
 }
