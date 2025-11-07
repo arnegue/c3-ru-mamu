@@ -114,9 +114,9 @@ where
 
     // Makes a hard reset
     pub fn hard_reset(&mut self) {
-        self.reset_pin.set_low().unwrap();
+        self.reset_pin.set_low();
         FreeRtos::delay_ms(500);
-        self.reset_pin.set_high().unwrap();
+        self.reset_pin.set_high();
     }
 }
 
@@ -180,17 +180,17 @@ where
     where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
-        self.soft_reset().unwrap();
+        self.soft_reset()?;
 
-        self.set_word_length().unwrap();
+        self.set_word_length()?;
 
-        self.set_stop_bit().unwrap();
+        self.set_stop_bit()?;
 
-        self.set_parity().unwrap();
+        self.set_parity()?;
 
-        self.set_baudrate().unwrap();
+        self.set_baudrate()?;
 
-        self.enable_fifo().unwrap();
+        self.enable_fifo()?;
 
         self.enable_transmition()
     }
@@ -201,9 +201,8 @@ where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
         let mut borrowed_sc16is752 = self.sc16is752.borrow_mut();
-        let mut temporary_lcr = borrowed_sc16is752
-            .read_register(SC16IS752Registers::LCR, self.channel)
-            .unwrap();
+        let mut temporary_lcr =
+            borrowed_sc16is752.read_register(SC16IS752Registers::LCR, self.channel)?;
 
         let (lcr_0, lcr_1) = match self.uart_config.data_bits {
             5 => (0, 0),
@@ -216,11 +215,7 @@ where
         temporary_lcr |= lcr_0 << 0;
         temporary_lcr |= lcr_1 << 1;
 
-        borrowed_sc16is752.write_register(
-            SC16IS752Registers::LCR,
-            self.channel,
-            temporary_lcr,
-        )
+        borrowed_sc16is752.write_register(SC16IS752Registers::LCR, self.channel, temporary_lcr)
     }
 
     // Sets baudrate to device
@@ -230,9 +225,7 @@ where
     {
         // Calulate Baudrate
         let mut borrowed_sc16is752 = self.sc16is752.borrow_mut();
-        let mcr = borrowed_sc16is752
-            .read_register(SC16IS752Registers::MCR, self.channel)
-            .unwrap();
+        let mcr = borrowed_sc16is752.read_register(SC16IS752Registers::MCR, self.channel)?;
         let prescaler_value: u32 = match mcr >> 7 {
             0 => 1,
             1 => 4,
@@ -244,27 +237,28 @@ where
         let divisor: u16 = ((upper_divisor) / (16u32 * (self.uart_config.baud_rate as u32))) as u16;
 
         // Enable special Register set to set baudrate
-        let temporary_lcr = borrowed_sc16is752
-            .read_register(SC16IS752Registers::LCR, self.channel)
-            .unwrap();
+        let temporary_lcr =
+            borrowed_sc16is752.read_register(SC16IS752Registers::LCR, self.channel)?;
 
-        borrowed_sc16is752
-            .write_register(SC16IS752Registers::LCR, self.channel, temporary_lcr | 0x80)
-            .unwrap();
+        borrowed_sc16is752.write_register(
+            SC16IS752Registers::LCR,
+            self.channel,
+            temporary_lcr | 0x80,
+        )?;
 
         // Set Baudrate
         // LSB
-        borrowed_sc16is752
-            .write_register(SC16IS752Registers::RHR_THR_DLL, self.channel, divisor as u8)
-            .unwrap();
+        borrowed_sc16is752.write_register(
+            SC16IS752Registers::RHR_THR_DLL,
+            self.channel,
+            divisor as u8,
+        )?;
         // MSB
-        borrowed_sc16is752
-            .write_register(
-                SC16IS752Registers::IER_DLH,
-                self.channel,
-                (divisor >> 8) as u8,
-            )
-            .unwrap();
+        borrowed_sc16is752.write_register(
+            SC16IS752Registers::IER_DLH,
+            self.channel,
+            (divisor >> 8) as u8,
+        )?;
 
         // Disable special register set again
         borrowed_sc16is752.write_register(
@@ -280,9 +274,8 @@ where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
         let mut borrowed_sc16is752 = self.sc16is752.borrow_mut();
-        let mut temporary_lcr = borrowed_sc16is752
-            .read_register(SC16IS752Registers::LCR, self.channel)
-            .unwrap();
+        let mut temporary_lcr =
+            borrowed_sc16is752.read_register(SC16IS752Registers::LCR, self.channel)?;
 
         let (parity_enable, parity_type, forced_parity_bit) = match self.uart_config.parity {
             UARTParity::None => (0, 0, 0),
@@ -297,11 +290,7 @@ where
         temporary_lcr |= parity_type << 4;
         temporary_lcr |= forced_parity_bit << 5;
 
-        borrowed_sc16is752.write_register(
-            SC16IS752Registers::LCR,
-            self.channel,
-            temporary_lcr,
-        )
+        borrowed_sc16is752.write_register(SC16IS752Registers::LCR, self.channel, temporary_lcr)
     }
 
     // Sets stop bit to device
@@ -310,9 +299,8 @@ where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
         let mut borrowed_sc16is752 = self.sc16is752.borrow_mut();
-        let mut temporary_lcr = borrowed_sc16is752
-            .read_register(SC16IS752Registers::LCR, self.channel)
-            .unwrap();
+        let mut temporary_lcr =
+            borrowed_sc16is752.read_register(SC16IS752Registers::LCR, self.channel)?;
 
         let stop_bit: u8 = match (self.uart_config.stop_bits, self.uart_config.data_bits) {
             (StopBits::STOP1, 5..=8) => 0,
@@ -323,11 +311,7 @@ where
 
         temporary_lcr |= stop_bit << 2;
 
-        borrowed_sc16is752.write_register(
-            SC16IS752Registers::LCR,
-            self.channel,
-            temporary_lcr,
-        )
+        borrowed_sc16is752.write_register(SC16IS752Registers::LCR, self.channel, temporary_lcr)
     }
 
     // Makes a software reset
@@ -349,11 +333,7 @@ where
         let mut borrowed_sc16is752 = self.sc16is752.borrow_mut();
         let frc_val = 0b00000111; // Enable FIFO, reset RX and TX FIFO
 
-        borrowed_sc16is752.write_register(
-            SC16IS752Registers::LCR,
-            self.channel,
-            frc_val,
-        )
+        borrowed_sc16is752.write_register(SC16IS752Registers::LCR, self.channel, frc_val)
     }
 
     fn enable_transmition(&self) -> Result<(), EspError>
@@ -361,17 +341,11 @@ where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
         let mut borrowed_sc16is752 = self.sc16is752.borrow_mut();
-        let mut efcr = borrowed_sc16is752
-            .read_register(SC16IS752Registers::EFCR, self.channel)
-            .unwrap();
+        let mut efcr = borrowed_sc16is752.read_register(SC16IS752Registers::EFCR, self.channel)?;
 
         efcr |= 0b11111001; // Enable TX and RX
 
-        borrowed_sc16is752.write_register(
-            SC16IS752Registers::EFCR,
-            self.channel,
-            efcr,
-        )
+        borrowed_sc16is752.write_register(SC16IS752Registers::EFCR, self.channel, efcr)
     }
 
     // This register reports the fill level of the receive FIFO, that is, the number of characters in the RX FIFO
@@ -397,7 +371,7 @@ where
     where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
-        let available_bytes = self.get_rx_fifo_fill_level().unwrap();
+        let available_bytes = self.get_rx_fifo_fill_level()?;
         let channel = self.channel;
         if available_bytes == 0 {
             log::warn!("Device {channel}: Cannot read. No byte available in RX-buffer");
@@ -415,7 +389,7 @@ where
     where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
-        if self.get_tx_fifo_fill_level().unwrap() == 0 {
+        if self.get_tx_fifo_fill_level()? == 0 {
             let channel = self.channel;
             log::warn!("Device {channel}: Cannot write. No space left in TX-buffer");
             return Err(EspError::from_non_zero(NonZero::new(1).unwrap())); // Buffer full
@@ -430,32 +404,23 @@ where
         T: Borrow<SpiDriver<'d>> + 'd,
     {
         let mut borrowed_sc16is752 = self.sc16is752.borrow_mut();
-        let lsr_val = borrowed_sc16is752
-            .read_register(SC16IS752Registers::LSR, self.channel)
-            .unwrap();
+        let lsr_val = borrowed_sc16is752.read_register(SC16IS752Registers::LSR, self.channel)?;
 
         if lsr_val & 1 != 0 {
             log::warn!("Data Ready");
-        }
-        else if lsr_val & 2 != 0 {
+        } else if lsr_val & 2 != 0 {
             return Err(EspError::from_non_zero(NonZero::new(1).unwrap())); // Overrun Error
-        }
-        else if lsr_val & 4 != 0 {
+        } else if lsr_val & 4 != 0 {
             return Err(EspError::from_non_zero(NonZero::new(1).unwrap())); // Parity Error
-        }
-        else if lsr_val & 8 != 0 {
+        } else if lsr_val & 8 != 0 {
             return Err(EspError::from_non_zero(NonZero::new(1).unwrap())); // Framing Error
-        }
-        else if lsr_val & 16 != 0 {
+        } else if lsr_val & 16 != 0 {
             log::warn!("Break Interrupt");
-        }
-        else if lsr_val & 32 != 0 {
+        } else if lsr_val & 32 != 0 {
             log::warn!("Transmitter Holding Register Empty");
-        }
-        else if lsr_val & 64 != 0 {
+        } else if lsr_val & 64 != 0 {
             log::warn!("Transmitter Empty");
-        }
-        else if lsr_val & 128 != 0 {
+        } else if lsr_val & 128 != 0 {
             return Err(EspError::from_non_zero(NonZero::new(1).unwrap())); // FIFO Error
         } else {
             // TODO debug
