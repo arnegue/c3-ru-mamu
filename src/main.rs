@@ -64,7 +64,7 @@ fn main() {
         // Toggle LED to show activity
         match sc16is752_a.gpio_set_pin_state(GPIO::GPIO0, current_led) {
             Ok(_) => {
-                log::info!("Device 1: Set LED to: {bool_val}");
+                //log::info!("Device 1: Set LED to: {bool_val}");
             }
             Err(e) => {
                 log::info!("Device 1: Failed to set LED: {e}");
@@ -77,12 +77,14 @@ fn main() {
 
         // Read a byte
         let mut my_read_buffer = [0u8; 23];
-        match sc16is752_a.read(Channel::A, &mut my_read_buffer) {
-            Ok(read_bytes) => {
-                let buf_str = buffer_to_string(my_read_buffer.as_ref(), read_bytes);
-                log::info!("Device 1: Read {read_bytes} bytes: {buf_str}");
+        if sc16is752_a.fifo_available_data(Channel::A).unwrap() > 0 {
+            match sc16is752_a.read(Channel::A, &mut my_read_buffer) {
+                Ok(read_bytes) => {
+                    let buf_str = buffer_to_string(my_read_buffer.as_ref(), read_bytes);
+                    log::info!("Device 1: Read {read_bytes} bytes: {buf_str}");
+                }
+                Err(_) => {}
             }
-            Err(_) => {}
         }
 
         // Write a byte
