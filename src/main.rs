@@ -1,7 +1,10 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
+use heapless::Vec;
 use ::sc16is752::Channel;
+use sc16is752::FIFO_MAX_TRANSMITION_LENGTH;
+use sc16is752::FIFO_SIZE;
 use ::sc16is752::InterruptEventTest;
 use ::sc16is752::Parity;
 use ::sc16is752::PinMode;
@@ -13,7 +16,6 @@ use ::sc16is752::SC16IS752;
 use esp_idf_hal::delay::FreeRtos;
 use esp_idf_hal::gpio::InterruptType;
 use esp_idf_hal::gpio::PinDriver;
-use esp_idf_hal::gpio::Pull;
 use esp_idf_hal::spi::*;
 use esp_idf_hal::units::*;
 
@@ -71,9 +73,13 @@ fn main() {
 
     // Debugging stuff
     let ascii_exclamation_mark = 33;
-    let ascii_tilde = 126;
-    let mut temp_write_byte: u8 = ascii_exclamation_mark;
+    
     let mut current_led = PinState::High;
+
+    let mut my_buffer: Vec<u8, FIFO_MAX_TRANSMITION_LENGTH> = Vec::new();
+    for m in 0u8..(FIFO_SIZE as u8) {
+        my_buffer.push(m);
+    }
 
     // Main loop
     loop {
@@ -149,20 +155,14 @@ fn main() {
             }
         }
 
-        // Write a byte
-        let my_buffer = [temp_write_byte; 1];
-        match sc16is752_a.write(&my_buffer) {
+        // Write bytes
+        match sc16is752_a.write_cycle(my_buffer.clone(), FIFO_SIZE) {
             Ok(_) => {
-                let temp_write_char: char = temp_write_byte as char;
-                log::info!("Device 1: Wrote byte: {temp_write_char}");
+                log::info!("Device 1: Wrote bytes:");
             }
             Err(e) => {
-                log::info!("Device 1: Failed to write byte: {e}");
+                log::info!("Device 1: Failed to write bytes: {e}");
             }
-        }
-        temp_write_byte = temp_write_byte + 1;
-        if temp_write_byte > ascii_tilde {
-            temp_write_byte = ascii_exclamation_mark;
         }
 
         FreeRtos::delay_ms(500);
