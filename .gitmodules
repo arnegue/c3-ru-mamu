@@ -1,0 +1,3 @@
+[submodule "sc16is752"]
+	path = sc16is752
+	url = https://github.com/arnegue/sc16is752
