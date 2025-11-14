@@ -56,7 +56,9 @@ fn main() {
         .unwrap();
     sc16is752_a.gpio_set_pin_mode(GPIO::GPIO0, PinMode::Output);
 
-    let mut temp_write_byte: u8 = 33;
+    let ascii_exclamation_mark = 33;
+    let ascii_tilde = 126;
+    let mut temp_write_byte: u8 = ascii_exclamation_mark;
     let mut current_led = PinState::High;
     loop {
         let bool_val = match current_led {
@@ -103,8 +105,8 @@ fn main() {
             }
         }
         temp_write_byte = temp_write_byte + 1;
-        if temp_write_byte >= 127 {
-            temp_write_byte = 33;
+        if temp_write_byte > ascii_tilde {
+            temp_write_byte = ascii_exclamation_mark;
         }
 
         FreeRtos::delay_ms(500);
