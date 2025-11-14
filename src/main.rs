@@ -60,16 +60,14 @@ fn main() {
 
     // SC16IS752 setup
     let spi_bus = SC16IS752spi::new(device_1);
-    let mut sc16is752_a = SC16IS752::new(spi_bus, 1843200.Hz().into());
+    let mut sc16is752_a = SC16IS752::new(spi_bus, 1843200.Hz().into(), Channel::A);
     let device_a_config = UartConfig::new(9600, 8, Parity::NoParity, 1);
     sc16is752_a.reset_device();
-    sc16is752_a
-        .initialise_uart(Channel::A, device_a_config)
-        .unwrap();
+    sc16is752_a.initialise_uart(device_a_config).unwrap();
     sc16is752_a.ping(); // TODO error handling
     sc16is752_a.gpio_set_pin_mode(GPIO::GPIO0, PinMode::Output);
-    let interrupt_bitmask = 0b1; // 00000101;
-    sc16is752_a.interrupt_control(Channel::A, interrupt_bitmask);
+    let interrupt_bitmask = 0b111;
+    sc16is752_a.interrupt_control(interrupt_bitmask);
 
     // Debugging stuff
     let ascii_exclamation_mark = 33;
@@ -80,6 +78,7 @@ fn main() {
     // Main loop
     loop {
         let mut try_read = false;
+        let mut try_write = false;
         let bool_val = match current_led {
             PinState::High => true,
             PinState::Low => false,
@@ -100,7 +99,7 @@ fn main() {
 
         if INTERUPT_OCCURRED.load(Ordering::Relaxed) {
             log::info!("Interrupt occured!");
-            match sc16is752_a.isr(Channel::A) {
+            match sc16is752_a.isr() {
                 Ok(interrupt_kind) => match interrupt_kind {
                     InterruptEventTest::RHR_INTERRUPT => {
                         log::info!("RHR_INTERRUPT");
@@ -135,9 +134,9 @@ fn main() {
 
         // Interrupt happend which tells, that there might be data in buffer
         if try_read {
-            let available_bytes = sc16is752_a.fifo_available_data(Channel::A).unwrap();
+            let available_bytes = sc16is752_a.fifo_available_data().unwrap();
             if available_bytes > 0 {
-                match sc16is752_a.read_cycle(Channel::A, available_bytes as usize) {
+                match sc16is752_a.read_cycle(available_bytes as usize) {
                     Ok(read_bytes) => {
                         // There could be a race-condition, that between the call of available bytes and the actual reading the size increases,
                         // but that shouldn't be that bad and could be handled later when parsing the buffer
@@ -152,7 +151,7 @@ fn main() {
 
         // Write a byte
         let my_buffer = [temp_write_byte; 1];
-        match sc16is752_a.write(Channel::A, &my_buffer) {
+        match sc16is752_a.write(&my_buffer) {
             Ok(_) => {
                 let temp_write_char: char = temp_write_byte as char;
                 log::info!("Device 1: Wrote byte: {temp_write_char}");
@@ -181,39 +180,3 @@ fn buffer_to_string(buffer: &[u8], size: usize) -> String {
 fn gpio_isr() {
     INTERUPT_OCCURRED.store(true, Ordering::Relaxed);
 }
-/*
-fn spi_interrupt_event<BUS>(mut device: SC16IS752<BUS>)
-where
-    BUS: ::sc16is752::Bus,
-{
-    match device.interrupt_pending_test(Channel::A) {
-        Ok(_) => {}
-        Err(err) => {
-            log::error!("Error in interrupt_pending_test");
-            // TODO print?
-            return;
-        }
-    }
-
-    match device.isr(Channel::A) {
-        Ok(interrupt_kind) => match interrupt_kind {
-            InterruptEventTest::RHR_INTERRUPT => log::info!("RHR_INTERRUPT"),
-            InterruptEventTest::RECEIVE_LINE_STATUS_ERROR => {
-                log::info!("RECEIVE_LINE_STATUS_ERROR")
-            }
-            InterruptEventTest::RECEIVE_TIMEOUT_INTERRUPT => {
-                log::info!("RECEIVE_TIMEOUT_INTERRUPT")
-            }
-            InterruptEventTest::THR_INTERRUPT => log::info!("THR_INTERRUPT"),
-            InterruptEventTest::MODEM_INTERRUPT => log::info!("MODEM_INTERRUPT"),
-            InterruptEventTest::INPUT_PIN_CHANGE_STATE => log::info!("INPUT_PIN_CHANGE_STATE"),
-            InterruptEventTest::RECEIVE_XOFF => log::info!("RECEIVE_XOFF"),
-            InterruptEventTest::CTS_RTS_CHANGE => log::info!("CTS_RTS_CHANGE"),
-            InterruptEventTest::UNKNOWN => log::info!("UNKNOWN"),
-        },
-        Err(err) => {
-            log::error!("Error in isr");
-        }
-    }
-}
-*/
