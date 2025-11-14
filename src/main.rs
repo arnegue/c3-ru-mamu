@@ -1,6 +1,7 @@
 mod sc16is752;
 
 use ::sc16is752::Channel;
+use ::sc16is752::FIFO_SIZE;
 use ::sc16is752::Parity;
 use ::sc16is752::PinMode;
 use ::sc16is752::PinState;
@@ -49,6 +50,7 @@ fn main() {
 
     let device_a_config = UartConfig::new(9600, 8, Parity::NoParity, 1);
 
+    sc16is752_a.reset_device();
     sc16is752_a
         .initialise_uart(Channel::A, device_a_config)
         .unwrap();
@@ -75,13 +77,15 @@ fn main() {
             false => PinState::High,
         };
 
-        // Read a byte
-        let mut my_read_buffer = [0u8; 23];
-        if sc16is752_a.fifo_available_data(Channel::A).unwrap() > 0 {
-            match sc16is752_a.read(Channel::A, &mut my_read_buffer) {
+        // Read byte
+        let available_bytes = sc16is752_a.fifo_available_data(Channel::A).unwrap();
+        if available_bytes > 0 {
+            match sc16is752_a.read_cycle(Channel::A, available_bytes as usize) {
                 Ok(read_bytes) => {
-                    let buf_str = buffer_to_string(my_read_buffer.as_ref(), read_bytes);
-                    log::info!("Device 1: Read {read_bytes} bytes: {buf_str}");
+                    // There could be a race-condition, that between the call of available bytes and the actual reading the size increases,
+                    // but that shouldn't be that bad and could be handled later when parsing the buffer
+                    let buf_str = buffer_to_string(read_bytes.as_ref(), available_bytes as usize);
+                    log::info!("Device 1: Read {available_bytes} bytes: {buf_str}");
                 }
                 Err(_) => {}
             }
