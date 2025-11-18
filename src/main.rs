@@ -18,6 +18,9 @@ use esp_idf_hal::gpio::InterruptType;
 use esp_idf_hal::gpio::PinDriver;
 use esp_idf_hal::spi::*;
 use esp_idf_hal::units::*;
+use heapless::Vec;
+use sc16is752::FIFO_MAX_TRANSMITION_LENGTH;
+use sc16is752::FIFO_SIZE;
 
 static INTERUPT_OCCURRED: AtomicBool = AtomicBool::new(false); // Notifier that message transmission is complete
 
@@ -27,8 +30,6 @@ fn main() {
     // It is necessary to call this function once. Otherwise some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
     esp_idf_svc::sys::link_patches();
-
-    // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
     use esp_idf_hal::peripherals::Peripherals;
 
@@ -72,8 +73,6 @@ fn main() {
     sc16is752_a.interrupt_control(interrupt_bitmask);
 
     // Debugging stuff
-    let ascii_exclamation_mark = 33;
-    
     let mut current_led = PinState::High;
 
     let mut my_buffer: Vec<u8, FIFO_MAX_TRANSMITION_LENGTH> = Vec::new();
@@ -107,27 +106,27 @@ fn main() {
             log::info!("Interrupt occured!");
             match sc16is752_a.isr() {
                 Ok(interrupt_kind) => match interrupt_kind {
-                    InterruptEventTest::RHR_INTERRUPT => {
+                    InterruptEvents::RHR_INTERRUPT => {
                         log::info!("RHR_INTERRUPT");
                         try_read = true;
                     }
-                    InterruptEventTest::RECEIVE_LINE_STATUS_ERROR => {
+                    InterruptEvents::RECEIVE_LINE_STATUS_ERROR => {
                         try_read = true;
                         log::info!("RECEIVE_LINE_STATUS_ERROR")
                     }
-                    InterruptEventTest::RECEIVE_TIMEOUT_INTERRUPT => {
+                    InterruptEvents::RECEIVE_TIMEOUT_INTERRUPT => {
                         try_read = true;
                         log::info!("RECEIVE_TIMEOUT_INTERRUPT")
                     }
-                    InterruptEventTest::THR_INTERRUPT => log::info!("THR_INTERRUPT"),
-                    InterruptEventTest::MODEM_INTERRUPT => log::info!("MODEM_INTERRUPT"),
-                    InterruptEventTest::INPUT_PIN_CHANGE_STATE => {
+                    InterruptEvents::THR_INTERRUPT => log::info!("THR_INTERRUPT"),
+                    InterruptEvents::MODEM_INTERRUPT => log::info!("MODEM_INTERRUPT"),
+                    InterruptEvents::INPUT_PIN_CHANGE_STATE => {
                         log::info!("INPUT_PIN_CHANGE_STATE")
                     }
-                    InterruptEventTest::RECEIVE_XOFF => log::info!("RECEIVE_XOFF"),
-                    InterruptEventTest::CTS_RTS_CHANGE => log::info!("CTS_RTS_CHANGE"),
-                    InterruptEventTest::NO_INTERRUPT => log::info!("NO_INTERRUPT"),
-                    InterruptEventTest::UNKNOWN => log::info!("UNKNOWN"),
+                    InterruptEvents::RECEIVE_XOFF => log::info!("RECEIVE_XOFF"),
+                    InterruptEvents::CTS_RTS_CHANGE => log::info!("CTS_RTS_CHANGE"),
+                    InterruptEvents::NO_INTERRUPT => log::info!("NO_INTERRUPT"),
+                    InterruptEvents::UNKNOWN => log::info!("UNKNOWN"),
                 },
                 Err(err) => {
                     log::error!("Error in isr");
