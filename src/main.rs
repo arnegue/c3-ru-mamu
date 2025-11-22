@@ -22,7 +22,6 @@ use sc16is752::SC16IS752;
 use crate::led_task::start_led_tasks;
 
 mod led_task;
-mod spi_task;
 
 static INTERUPT_OCCURRED: AtomicBool = AtomicBool::new(false); // Notifier that message transmission is complete
 
