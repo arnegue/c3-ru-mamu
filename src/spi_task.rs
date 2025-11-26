@@ -1,16 +1,20 @@
-use esp_idf_hal::{gpio::{Input, InterruptType, Pin, PinDriver}, spi::{SPI2, SpiDeviceDriver, SpiDriver}, sys::{
-    self, tskTaskControlBlock, xTaskCreatePinnedToCore, xTaskGenericNotifyFromISR,
-}};
+use esp_idf_hal::{
+    gpio::{Input, InterruptType, Pin, PinDriver},
+    spi::{SpiDeviceDriver, SpiDriver, SPI2},
+    sys::{self, tskTaskControlBlock, xTaskCreatePinnedToCore, xTaskGenericNotifyFromISR},
+};
 use esp_idf_sys::TaskHandle_t;
 use std::{
-    borrow::Borrow, ffi::CString, ptr, sync::atomic::{AtomicPtr, Ordering}
+    borrow::Borrow,
+    ffi::CString,
+    ptr,
+    sync::atomic::{AtomicPtr, Ordering},
 };
 
 use esp_idf_hal::spi::Spi;
-use sc16is752::{Bus, Channel};
+use esp_idf_hal::units::*;
 use sc16is752::InterruptEvents;
 use sc16is752::Parity;
-use esp_idf_hal::units::*;
 use sc16is752::PinMode;
 use sc16is752::PinState;
 use sc16is752::SC16IS752spi;
@@ -19,6 +23,7 @@ use sc16is752::FIFO_MAX_TRANSMITION_LENGTH;
 use sc16is752::FIFO_SIZE;
 use sc16is752::GPIO;
 use sc16is752::SC16IS752;
+use sc16is752::{Bus, Channel};
 
 // Task handle for SPI task (needed by ISR)
 static SPI_TASK_HANDLE: AtomicPtr<tskTaskControlBlock> = AtomicPtr::new(core::ptr::null_mut());
@@ -47,13 +52,10 @@ fn gpio_isr_handler() {
         }
     }
 }
-
-extern "C" fn spi_task<BUS>(param: *mut core::ffi::c_void)
-where
-    BUS: Bus,
-{
+type MySc16 = SC16IS752<SC16IS752spi<SpiDeviceDriver<'static, esp_idf_hal::spi::SpiDriver<'static>>>>;
+extern "C" fn spi_task<'d>(param: *mut core::ffi::c_void) {
     // let spi: &mut SpiDeviceDriver = unsafe { &mut *(param as *mut SpiDeviceDriver) };
-    let sc16is752 = unsafe { &mut *(param as *mut SC16IS752<BUS>) };
+    let mut sc16: Box<MySc16> = unsafe { Box::from_raw(param as *mut MySc16) };
 
     unsafe {
         let mut notif_value: u32 = 0;
@@ -67,9 +69,9 @@ where
                 &mut notif_value,
                 0,
             );
-
+            sc16.reset_device();
             log::info!("Interrupt occured!");
-            match sc16is752.isr() {
+            match sc16.isr() {
                 Ok(interrupt_kind) => match interrupt_kind {
                     InterruptEvents::RHR_INTERRUPT => {
                         log::info!("RHR_INTERRUPT");
@@ -101,10 +103,14 @@ where
     }
 }
 
-fn setup_sc16is752<'d, T, BUS, U: Pin>(spi_device_driver: &mut SpiDeviceDriver<'d, T>, mut isr_pin_driver: PinDriver<'static, U, Input>) -> SC16IS752<SC16IS752spi<&'d mut esp_idf_hal::spi::SpiDeviceDriver<'d, T>>>
+type Sc16<'d, T> = SC16IS752<SC16IS752spi<SpiDeviceDriver<'d, T>>>;
+
+fn setup_sc16is752<'d, T, U: Pin>(
+    spi_device_driver: SpiDeviceDriver<'d, T>,
+    mut isr_pin_driver: PinDriver<'static, U, Input>,
+) -> Sc16<'d, T>
 where
     T: Borrow<SpiDriver<'d>> + 'd,
-    BUS: Bus,
 {
     // Interrupt pin for SC16IS752
     isr_pin_driver
@@ -126,18 +132,22 @@ where
     sc16is752
 }
 
-pub fn start_spi_task<'d, T>(spi_device_driver: &mut SpiDeviceDriver<'d, T>)
-where
+pub fn start_spi_task<'d, T, U: Pin>(
+    spi_device_driver: SpiDeviceDriver<'d, T>,
+    isr_pin_driver: PinDriver<'static, U, Input>,
+) where
     T: Borrow<SpiDriver<'d>> + 'd
 {
-    let sc16is752 = setup_sc16is752(spi_device_driver);
-    let sc16is752_box = Box::new(sc16is752);
-    let sc16is752_ptr = Box::into_raw(sc16is752_box); // leak into raw pointer
+    let sc16is752 = setup_sc16is752(spi_device_driver, isr_pin_driver);
+    // Box it so ownership can be transferred
+    let sc16is752_boxed: Box<Sc16<'d, T>> = Box::new(sc16is752);
+    // Convert into raw pointer for FreeRTOS
+    let sc16is752_ptr: *mut Sc16<'d, T> = Box::into_raw(sc16is752_boxed);
 
     unsafe {
         let mut task_handle: TaskHandle_t = ptr::null_mut();
         let res = xTaskCreatePinnedToCore(
-            Some(spi_task::<SPI2>),
+            Some(spi_task),
             CString::new("SPI Task").unwrap().as_ptr(),
             1000,
             sc16is752_ptr as *mut core::ffi::c_void,

@@ -25,9 +25,6 @@ fn main() {
     let peripherals = Peripherals::take().unwrap();
     let spi = peripherals.spi2;
 
-    let peripherals = Peripherals::take().unwrap();
-    let spi = peripherals.spi2;
-
     let sclk = peripherals.pins.gpio5; // CLK
     let miso = peripherals.pins.gpio7; // SDI
     let mosi = peripherals.pins.gpio8; // SDO
@@ -36,16 +33,18 @@ fn main() {
     let isr_pin = peripherals.pins.gpio2; // IRQ
     let reset_pin = peripherals.pins.gpio4; // RST
 
-
     // SPI only
     let driver =
         SpiDriver::new::<SPI2>(spi, sclk, mosi, Some(miso), &SpiDriverConfig::new()).unwrap();
     let config = config::Config::new().baudrate(1.MHz().into());
     let device_driver = SpiDeviceDriver::new(&driver, Some(cs), &config).unwrap();
 
+    // SPI isr-pin
+    let isr_pin_driver = PinDriver::input(isr_pin).unwrap();
+
     //start_spi_task::<SPI>(driver);
-    start_spi_task::<&esp_idf_hal::spi::SpiDriver<'_>, dyn Bus::<Error = Type>>(&mut device_driver);
-    
+    start_spi_task(device_driver, isr_pin_driver);
+
     // LED-Task
     let led_pin = peripherals.pins.gpio0;
     let led: PinDriver<'_, esp_idf_hal::gpio::Gpio0, esp_idf_hal::gpio::Output> =
