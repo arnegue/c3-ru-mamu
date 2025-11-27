@@ -12,7 +12,7 @@ extern "C" fn led_task<T: Pin>(param: *mut core::ffi::c_void) {
             &mut *(param as *mut PinDriver<'static, T, Output>);
         loop {
             led.toggle().unwrap();
-            log::info!("Toggled LED");
+            log::debug!("Toggled LED");
             FreeRtos::delay_ms(500);
         }
     }
