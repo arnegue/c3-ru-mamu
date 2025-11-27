@@ -1,20 +1,12 @@
+use crate::led_task::start_led_task;
+use crate::spi_task::start_spi_task;
 use esp_idf_hal::delay::FreeRtos;
-use esp_idf_hal::gpio::InterruptType;
 use esp_idf_hal::gpio::PinDriver;
 use esp_idf_hal::spi::*;
 use esp_idf_hal::units::*;
-use heapless::Vec;
-use sc16is752::Bus;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
-
-use crate::led_task::start_led_task;
-use crate::spi_task::start_spi_task;
 
 mod led_task;
 mod spi_task;
-
-static INTERUPT_OCCURRED: AtomicBool = AtomicBool::new(false); // Notifier that message transmission is complete
 
 fn main() {
     // ESP-IDF initialization stuff
@@ -40,9 +32,7 @@ fn main() {
     let device_driver = SpiDeviceDriver::new(&driver, Some(cs), &config).unwrap();
 
     // SPI isr-pin
-    let isr_pin_driver = PinDriver::input(isr_pin).unwrap();
-
-    //start_spi_task::<SPI>(driver);
+    let mut isr_pin_driver = PinDriver::input(isr_pin).unwrap();
     start_spi_task(device_driver, isr_pin_driver);
 
     // LED-Task
@@ -56,8 +46,7 @@ fn main() {
 
     // Main loop
     loop {
-        log::info!("Main-Delay");
-
+        log::debug!("Main-Delay");
         FreeRtos::delay_ms(1000);
     }
 }
