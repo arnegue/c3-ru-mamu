@@ -1,6 +1,7 @@
 use esp_idf_hal::{
+    delay::FreeRtos,
     gpio::{Input, InterruptType, Pin, PinDriver},
-    spi::{SpiDeviceDriver, SpiDriver, SPI2},
+    spi::{SpiDeviceDriver, SpiDriver},
     sys::{self, tskTaskControlBlock, xTaskCreatePinnedToCore, xTaskGenericNotifyFromISR},
 };
 use esp_idf_sys::TaskHandle_t;
@@ -11,19 +12,15 @@ use std::{
     sync::atomic::{AtomicPtr, Ordering},
 };
 
-use esp_idf_hal::spi::Spi;
 use esp_idf_hal::units::*;
+use sc16is752::Channel;
 use sc16is752::InterruptEvents;
 use sc16is752::Parity;
 use sc16is752::PinMode;
-use sc16is752::PinState;
 use sc16is752::SC16IS752spi;
 use sc16is752::UartConfig;
-use sc16is752::FIFO_MAX_TRANSMITION_LENGTH;
-use sc16is752::FIFO_SIZE;
 use sc16is752::GPIO;
 use sc16is752::SC16IS752;
-use sc16is752::{Bus, Channel};
 
 // Task handle for SPI task (needed by ISR)
 static SPI_TASK_HANDLE: AtomicPtr<tskTaskControlBlock> = AtomicPtr::new(core::ptr::null_mut());
@@ -52,14 +49,17 @@ fn gpio_isr_handler() {
         }
     }
 }
-type MySc16 = SC16IS752<SC16IS752spi<SpiDeviceDriver<'static, esp_idf_hal::spi::SpiDriver<'static>>>>;
-extern "C" fn spi_task<'d>(param: *mut core::ffi::c_void) {
-    // let spi: &mut SpiDeviceDriver = unsafe { &mut *(param as *mut SpiDeviceDriver) };
-    let mut sc16: Box<MySc16> = unsafe { Box::from_raw(param as *mut MySc16) };
-
+extern "C" fn spi_task<'d, T>(param: *mut core::ffi::c_void)
+where
+    T: Borrow<SpiDriver<'d>> + 'd,
+{
     unsafe {
+        // Recover Box from raw pointer
+        let mut sc16: Box<SC16IS752<SC16IS752spi<SpiDeviceDriver<'_, T>>>> =
+            Box::from_raw(param as *mut _);
         let mut notif_value: u32 = 0;
-        let mut try_read = true;
+        let mut try_read = false;
+        let mut try_write = false;
 
         loop {
             sys::xTaskGenericNotifyWait(
@@ -69,7 +69,6 @@ extern "C" fn spi_task<'d>(param: *mut core::ffi::c_void) {
                 &mut notif_value,
                 0,
             );
-            sc16.reset_device();
             log::info!("Interrupt occured!");
             match sc16.isr() {
                 Ok(interrupt_kind) => match interrupt_kind {
@@ -85,20 +84,44 @@ extern "C" fn spi_task<'d>(param: *mut core::ffi::c_void) {
                         try_read = true;
                         log::info!("RECEIVE_TIMEOUT_INTERRUPT")
                     }
-                    InterruptEvents::THR_INTERRUPT => log::info!("THR_INTERRUPT"),
-                    InterruptEvents::MODEM_INTERRUPT => log::info!("MODEM_INTERRUPT"),
+                    InterruptEvents::THR_INTERRUPT => {
+                        log::info!("THR_INTERRUPT");
+                        try_write = true;
+                    }
+                    InterruptEvents::MODEM_INTERRUPT => {
+                        log::info!("MODEM_INTERRUPT");
+                    }
                     InterruptEvents::INPUT_PIN_CHANGE_STATE => {
                         log::info!("INPUT_PIN_CHANGE_STATE")
                     }
-                    InterruptEvents::RECEIVE_XOFF => log::info!("RECEIVE_XOFF"),
-                    InterruptEvents::CTS_RTS_CHANGE => log::info!("CTS_RTS_CHANGE"),
-                    InterruptEvents::NO_INTERRUPT => log::info!("NO_INTERRUPT"),
-                    InterruptEvents::UNKNOWN => log::info!("UNKNOWN"),
+                    InterruptEvents::RECEIVE_XOFF => {
+                        log::info!("RECEIVE_XOFF");
+                    }
+                    InterruptEvents::CTS_RTS_CHANGE => {
+                        log::info!("CTS_RTS_CHANGE");
+                    }
+                    InterruptEvents::NO_INTERRUPT => {
+                        log::info!("NO_INTERRUPT");
+                    }
+                    InterruptEvents::UNKNOWN => {
+                        log::info!("UNKNOWN");
+                    }
                 },
                 Err(err) => {
                     log::error!("Error in isr");
                 }
             }
+
+            if try_read {
+                let available_bytes = sc16.fifo_available_data().unwrap();
+                let _read_bytes = sc16.read_cycle(available_bytes as usize);
+                // TODO
+            } else if try_write {
+                // TODO sc16.write_cycle(payload, length)
+            } else {
+                log::warn!("Noting to do after interrupt");
+            }
+            FreeRtos::delay_ms(500);
         }
     }
 }
@@ -136,9 +159,10 @@ pub fn start_spi_task<'d, T, U: Pin>(
     spi_device_driver: SpiDeviceDriver<'d, T>,
     isr_pin_driver: PinDriver<'static, U, Input>,
 ) where
-    T: Borrow<SpiDriver<'d>> + 'd
+    T: Borrow<SpiDriver<'d>> + 'd,
 {
-    let sc16is752 = setup_sc16is752(spi_device_driver, isr_pin_driver);
+    let sc16is752: SC16IS752<SC16IS752spi<SpiDeviceDriver<'_, T>>> =
+        setup_sc16is752(spi_device_driver, isr_pin_driver);
     // Box it so ownership can be transferred
     let sc16is752_boxed: Box<Sc16<'d, T>> = Box::new(sc16is752);
     // Convert into raw pointer for FreeRTOS
@@ -147,9 +171,9 @@ pub fn start_spi_task<'d, T, U: Pin>(
     unsafe {
         let mut task_handle: TaskHandle_t = ptr::null_mut();
         let res = xTaskCreatePinnedToCore(
-            Some(spi_task),
+            Some(spi_task::<T>),
             CString::new("SPI Task").unwrap().as_ptr(),
-            1000,
+            5000,
             sc16is752_ptr as *mut core::ffi::c_void,
             10,
             &mut task_handle as *mut _, // Out: task handle
