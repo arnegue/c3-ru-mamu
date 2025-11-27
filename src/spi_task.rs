@@ -1,37 +1,24 @@
+use esp_idf_hal::spi::SpiError;
+use esp_idf_hal::units::*;
 use esp_idf_hal::{
-    delay::FreeRtos,
     gpio::{Input, InterruptType, Pin, PinDriver},
     spi::{SpiDeviceDriver, SpiDriver},
     sys::{xTaskCreatePinnedToCore, xTaskGenericNotifyFromISR, xTaskGenericNotifyWait},
     task::do_yield,
 };
-use esp_idf_sys::{eNotifyAction_eSetBits, BaseType_t, TaskHandle_t};
-use std::{
-    borrow::Borrow,
-    ffi::CString,
-    ptr,
-    sync::atomic::{AtomicBool, Ordering},
+use esp_idf_sys::{eNotifyAction_eSetBits, BaseType_t, TaskHandle_t, TickType_t};
+use sc16is752::{
+    Channel, InterruptEvents, Parity, PinMode, SC16IS752spi, UartConfig, GPIO, SC16IS752,
 };
-
-use esp_idf_hal::units::*;
-use sc16is752::Channel;
-use sc16is752::InterruptEvents;
-use sc16is752::Parity;
-use sc16is752::PinMode;
-use sc16is752::SC16IS752spi;
-use sc16is752::UartConfig;
-use sc16is752::GPIO;
-use sc16is752::SC16IS752;
+use std::{borrow::Borrow, ffi::CString, ptr};
 
 // Task handle for SPI task (needed by ISR)
 static mut TASK_HANDLE: Option<TaskHandle_t> = None;
-static ISR_HAPPENED: AtomicBool = AtomicBool::new(false); // Notifier that message transmission is complete
 
 // ISR: GPIO interrupt fires -> notify SPI task
 #[no_mangle]
 fn gpio_isr_handler() {
-    ISR_HAPPENED.store(true, Ordering::SeqCst);
-    /*unsafe {
+    unsafe {
         let mut hp_task_woken: BaseType_t = 0;
         if let Some(task) = TASK_HANDLE {
             xTaskGenericNotifyFromISR(
@@ -43,11 +30,11 @@ fn gpio_isr_handler() {
                 &mut hp_task_woken, // did we wake a higher priority task?
             );
 
-            /*if hp_task_woken != 0 {
+            if hp_task_woken != 0 {
                 do_yield();
-            }*/
+            }
         }
-    }*/
+    }
 }
 
 type Sc16<'d, T> = SC16IS752<SC16IS752spi<SpiDeviceDriver<'d, T>>>;
@@ -65,7 +52,7 @@ extern "C" fn spi_task<'d, T, U: Pin>(param: *mut core::ffi::c_void)
 where
     T: Borrow<SpiDriver<'d>> + 'd,
 {
-    let mut notif_value: u32 = 0;
+    let mut notif_value: u32 = 0; // TODO later important for multiple SC16s
     let mut try_read = false;
     let mut try_write = false;
     let mut first_run = true; // In case an interrupt was raised before this task was spawned and xTaskGenericNotifyWait was reached
@@ -76,21 +63,15 @@ where
         let mut isr_pin_driver = task_parameter.isr_pin_driver;
 
         loop {
-            if ISR_HAPPENED.load(Ordering::SeqCst) {
-                log::info!("ISR_HAPPENED!");
-                isr_pin_driver.enable_interrupt().unwrap(); // Reenable interrupt again
-                ISR_HAPPENED.store(false, Ordering::SeqCst);
-            }
             if first_run
                 || (xTaskGenericNotifyWait(
                     0,        // index
                     0,        // bits to clear on entry
                     u32::MAX, // bits to clear on exit
                     &mut notif_value,
-                    0,
+                    TickType_t::MAX,
                 ) == 1)
             {
-                log::info!("Interrupt occured!");
                 match sc16.isr() {
                     Ok(interrupt_kind) => match interrupt_kind {
                         InterruptEvents::RHR_INTERRUPT => {
@@ -98,6 +79,7 @@ where
                             try_read = true;
                         }
                         InterruptEvents::RECEIVE_LINE_STATUS_ERROR => {
+                            // TODO error-handling?
                             try_read = true;
                             log::info!("RECEIVE_LINE_STATUS_ERROR")
                         }
@@ -109,33 +91,40 @@ where
                             log::info!("THR_INTERRUPT");
                             try_write = true;
                         }
-                        InterruptEvents::MODEM_INTERRUPT => {
-                            log::info!("MODEM_INTERRUPT");
-                        }
-                        InterruptEvents::INPUT_PIN_CHANGE_STATE => {
-                            log::info!("INPUT_PIN_CHANGE_STATE")
-                        }
                         InterruptEvents::RECEIVE_XOFF => {
                             log::info!("RECEIVE_XOFF");
                         }
-                        InterruptEvents::CTS_RTS_CHANGE => {
-                            log::info!("CTS_RTS_CHANGE");
-                        }
                         InterruptEvents::NO_INTERRUPT => {
+                            // TODO So why are we here?
                             log::info!("NO_INTERRUPT");
                         }
                         InterruptEvents::UNKNOWN => {
-                            log::info!("UNKNOWN");
+                            // TODO error-handling?
+                            log::error!("UNKNOWN interrupt occured");
+                        }
+                        _ => {
+                            log::info!("Uninterresting Interrupt occurred");
                         }
                     },
                     Err(err) => {
-                        log::error!("Error in isr");
+                        let s = format!("{:?}", err);
+                        log::error!("Error in isr: {}", s);
                     }
                 }
                 if try_read {
                     let available_bytes = sc16.fifo_available_data().unwrap();
-                    let _read_bytes = sc16.read_cycle(available_bytes as usize);
-                    // TODO
+                    match sc16.read_cycle(available_bytes as usize) {
+                        Ok(read_bytes) => {
+                            // There could be a race-condition, that between the call of available bytes and the actual reading the size increases,
+                            // but that shouldn't be that bad and could be handled later when parsing the buffer
+                            let buf_str =
+                                buffer_to_string(read_bytes.as_ref(), available_bytes as usize);
+                            log::info!("Device 1: Read {available_bytes} bytes: {buf_str}");
+                        }
+                        Err(_) => {
+                            log::error!("Error when reading {available_bytes} bytes");
+                        }
+                    }
                 } else if try_write {
                     // TODO sc16.write_cycle(payload, length)
                 } else {
@@ -146,7 +135,6 @@ where
             } else {
                 log::warn!("Timeout");
             }
-            FreeRtos::delay_ms(500);
         }
     }
 }
@@ -170,18 +158,28 @@ where
     let spi_bus = SC16IS752spi::new(spi_device_driver);
     let mut sc16is752 = SC16IS752::new(spi_bus, 1843200.Hz().into(), Channel::A);
     let device_a_config = UartConfig::new(9600, 8, Parity::NoParity, 1);
-    sc16is752.reset_device();
-    sc16is752.initialise_uart(device_a_config).unwrap();
-    sc16is752.ping(); // TODO error handling
-    sc16is752.gpio_set_pin_mode(GPIO::GPIO0, PinMode::Output);
-    let interrupt_bitmask = 0b111;
-    sc16is752.interrupt_control(interrupt_bitmask);
+
+    let result: Result<(), SpiError> = (|| {
+        sc16is752.ping()?; // TODO error handling
+        sc16is752.initialise_uart(device_a_config)?;
+        sc16is752.gpio_set_pin_mode(GPIO::GPIO0, PinMode::Output)?;
+        let interrupt_bitmask = 0b111;
+        sc16is752.interrupt_control(interrupt_bitmask)?;
+        Ok(())
+    })();
+
+    if result.is_err() {
+        let s = format!("{:?}", result.err());
+        panic!("Creating SC16IS752 failed: {}", s)
+    }
+
     TaskParameter {
         sc16: sc16is752,
         isr_pin_driver: isr_pin_driver,
     }
 }
 
+// Setups SC16IS752, its ISR and starts task
 pub fn start_spi_task<'d, T, U: Pin>(
     spi_device_driver: SpiDeviceDriver<'d, T>,
     isr_pin_driver: PinDriver<'static, U, Input>,
@@ -212,4 +210,12 @@ pub fn start_spi_task<'d, T, U: Pin>(
         }
         TASK_HANDLE = Some(task_handle);
     }
+}
+
+fn buffer_to_string(buffer: &[u8], size: usize) -> String {
+    let mut result = String::new();
+    for i in 0..size {
+        result.push(buffer[i] as char);
+    }
+    result
 }

@@ -32,7 +32,7 @@ fn main() {
     let device_driver = SpiDeviceDriver::new(&driver, Some(cs), &config).unwrap();
 
     // SPI isr-pin
-    let mut isr_pin_driver = PinDriver::input(isr_pin).unwrap();
+    let isr_pin_driver = PinDriver::input(isr_pin).unwrap();
     start_spi_task(device_driver, isr_pin_driver);
 
     // LED-Task
