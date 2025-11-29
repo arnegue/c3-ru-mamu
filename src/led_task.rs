@@ -18,7 +18,7 @@ extern "C" fn led_task<T: Pin>(param: *mut core::ffi::c_void) {
     }
 }
 
-pub fn start_led_task<T: Pin>(pin: PinDriver<'static, T, Output>) -> i32 {
+pub fn start_led_task<T: Pin>(pin: PinDriver<'static, T, Output>) {
     let pin_box = Box::new(pin);
     let pin_raw = Box::into_raw(pin_box); // leak into raw pointer
 
@@ -33,6 +33,8 @@ pub fn start_led_task<T: Pin>(pin: PinDriver<'static, T, Output>) -> i32 {
             0,
         );
 
-        res
+        if res != 1 {
+            panic!("Task creation failed");
+        }
     }
 }

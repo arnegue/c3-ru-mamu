@@ -128,7 +128,7 @@ where
                 } else if try_write {
                     // TODO sc16.write_cycle(payload, length)
                 } else {
-                    log::warn!("Noting to do after interrupt");
+                    log::warn!("Nothing to do after interrupt");
                 }
                 first_run = false;
                 isr_pin_driver.enable_interrupt().unwrap(); // Reenable interrupt again
@@ -201,7 +201,7 @@ pub fn start_spi_task<'d, T, U: Pin>(
             5000,
             task_param_ptr as *mut core::ffi::c_void,
             10,
-            &mut task_handle, // Out: task handle
+            &mut task_handle,
             0,
         );
 
@@ -212,6 +212,7 @@ pub fn start_spi_task<'d, T, U: Pin>(
     }
 }
 
+// Simple u8-buffer to string converter
 fn buffer_to_string(buffer: &[u8], size: usize) -> String {
     let mut result = String::new();
     for i in 0..size {
