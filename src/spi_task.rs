@@ -6,9 +6,10 @@ use esp_idf_hal::{
     sys::{xTaskCreatePinnedToCore, xTaskGenericNotifyFromISR, xTaskGenericNotifyWait},
     task::do_yield,
 };
-use esp_idf_sys::{eNotifyAction_eSetBits, BaseType_t, TaskHandle_t, TickType_t};
+use esp_idf_svc::hal::delay::TickType;
+use esp_idf_sys::{eNotifyAction_eSetBits, BaseType_t, TaskHandle_t};
 use sc16is752::{
-    Channel, InterruptEvents, Parity, PinMode, SC16IS752spi, UartConfig, GPIO, SC16IS752,
+    Channel, InterruptEvents, Parity, PinMode, PinState, SC16IS752spi, UartConfig, GPIO, SC16IS752,
 };
 use std::{borrow::Borrow, ffi::CString, ptr};
 
@@ -62,6 +63,7 @@ where
         let mut sc16 = task_parameter.sc16;
         let mut isr_pin_driver = task_parameter.isr_pin_driver;
 
+        let mut led_state = false;
         loop {
             if first_run
                 || (xTaskGenericNotifyWait(
@@ -69,7 +71,7 @@ where
                     0,        // bits to clear on entry
                     u32::MAX, // bits to clear on exit
                     &mut notif_value,
-                    TickType_t::MAX,
+                    TickType::new_millis(1000).ticks(),
                 ) == 1)
             {
                 match sc16.isr() {
@@ -133,7 +135,20 @@ where
                 first_run = false;
                 isr_pin_driver.enable_interrupt().unwrap(); // Reenable interrupt again
             } else {
-                log::warn!("Timeout");
+                log::debug!("Timeout");
+
+                match sc16.gpio_set_pin_state(
+                    GPIO::GPIO0,
+                    if led_state {
+                        PinState::High
+                    } else {
+                        PinState::Low
+                    },
+                ) {
+                    Ok(_) => log::debug!("Toggled LED"),
+                    Err(_) => log::warn!("Error toggling LED"),
+                }
+                led_state = !led_state;
             }
         }
     }
