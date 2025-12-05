@@ -44,8 +44,8 @@ struct TaskParameter<'d, T, U: Pin>
 where
     T: Borrow<SpiDriver<'d>> + 'd,
 {
-    sc16: Sc16<'d, T>,
-    isr_pin_driver: PinDriver<'static, U, Input>,
+    sc16: Sc16<'d, T>,                            // Instance of SPI-SC16IS752
+    isr_pin_driver: PinDriver<'static, U, Input>, // Interrupt pin for ISR for SC16IS752
 }
 
 // SPI-Task which reads and writes from/to SC16IS752
@@ -53,103 +53,115 @@ extern "C" fn spi_task<'d, T, U: Pin>(param: *mut core::ffi::c_void)
 where
     T: Borrow<SpiDriver<'d>> + 'd,
 {
-    let mut notif_value: u32 = 0; // TODO later important for multiple SC16s
-    let mut try_read = false;
-    let mut try_write = false;
-    let mut first_run = true; // In case an interrupt was raised before this task was spawned and xTaskGenericNotifyWait was reached
+    // Task-Parameters
+    let task_parameter: Box<TaskParameter<'d, T, U>>;
+    let mut sc16: SC16IS752<SC16IS752spi<SpiDeviceDriver<'_, T>>>;
+    let mut isr_pin_driver: PinDriver<'_, U, Input>;
     unsafe {
-        // Recover Box from raw pointer
-        let task_parameter: Box<TaskParameter<'d, T, U>> = Box::from_raw(param as *mut _);
-        let mut sc16 = task_parameter.sc16;
-        let mut isr_pin_driver = task_parameter.isr_pin_driver;
+        // Unbox them from raw pointer
+        task_parameter = Box::from_raw(param as *mut _);
+        sc16 = task_parameter.sc16;
+        isr_pin_driver = task_parameter.isr_pin_driver;
+    }
 
-        let mut led_state = false;
-        loop {
-            if first_run
-                || (xTaskGenericNotifyWait(
-                    0,        // index
-                    0,        // bits to clear on entry
-                    u32::MAX, // bits to clear on exit
-                    &mut notif_value,
-                    TickType::new_millis(1000).ticks(),
-                ) == 1)
-            {
-                match sc16.isr() {
-                    Ok(interrupt_kind) => match interrupt_kind {
-                        InterruptEvents::RHR_INTERRUPT => {
-                            log::info!("RHR_INTERRUPT");
-                            try_read = true;
-                        }
-                        InterruptEvents::RECEIVE_LINE_STATUS_ERROR => {
-                            // TODO error-handling?
-                            try_read = true;
-                            log::info!("RECEIVE_LINE_STATUS_ERROR")
-                        }
-                        InterruptEvents::RECEIVE_TIMEOUT_INTERRUPT => {
-                            try_read = true;
-                            log::info!("RECEIVE_TIMEOUT_INTERRUPT")
-                        }
-                        InterruptEvents::THR_INTERRUPT => {
-                            log::info!("THR_INTERRUPT");
-                            try_write = true;
-                        }
-                        InterruptEvents::RECEIVE_XOFF => {
-                            log::info!("RECEIVE_XOFF");
-                        }
-                        InterruptEvents::NO_INTERRUPT => {
-                            // TODO So why are we here?
-                            log::info!("NO_INTERRUPT");
-                        }
-                        InterruptEvents::UNKNOWN => {
-                            // TODO error-handling?
-                            log::error!("UNKNOWN interrupt occured");
-                        }
-                        _ => {
-                            log::info!("Uninterresting Interrupt occurred");
-                        }
-                    },
-                    Err(err) => {
-                        let s = format!("{:?}", err);
-                        log::error!("Error in isr: {}", s);
-                    }
-                }
-                if try_read {
-                    let available_bytes = sc16.fifo_available_data().unwrap();
-                    match sc16.read_cycle(available_bytes as usize) {
-                        Ok(read_bytes) => {
-                            // There could be a race-condition, that between the call of available bytes and the actual reading the size increases,
-                            // but that shouldn't be that bad and could be handled later when parsing the buffer
-                            let buf_str =
-                                buffer_to_string(read_bytes.as_ref(), available_bytes as usize);
-                            log::info!("Device 1: Read {available_bytes} bytes: {buf_str}");
-                        }
-                        Err(_) => {
-                            log::error!("Error when reading {available_bytes} bytes");
-                        }
-                    }
-                } else if try_write {
-                    // TODO sc16.write_cycle(payload, length)
-                } else {
-                    log::warn!("Nothing to do after interrupt");
-                }
-                first_run = false;
-                isr_pin_driver.enable_interrupt().unwrap(); // Reenable interrupt again
-            } else {
-                log::debug!("Timeout");
+    // Variables for in-loop-stuff
+    let mut notif_value: u32 = 0; // TODO later important for multiple SC16s
+    let mut try_read = false; // Interrupt concerning Receiving occured. Try to read from register
+    let mut try_write = false; // Interrupt concerning Trasnmitting occured. Try to write to register
+    let mut first_run = true; // In case an interrupt was raised before this task was spawned and xTaskGenericNotifyWait was reached
+    let mut led_state = false; // LED-State to toggle
 
-                match sc16.gpio_set_pin_state(
-                    GPIO::GPIO0,
-                    if led_state {
-                        PinState::High
-                    } else {
-                        PinState::Low
-                    },
-                ) {
-                    Ok(_) => log::debug!("Toggled LED"),
-                    Err(_) => log::warn!("Error toggling LED"),
+    loop {
+        // Check if interrupt happened
+        let interrupt_occurred: bool;
+        unsafe {
+            interrupt_occurred = xTaskGenericNotifyWait(
+                0,        // index
+                0,        // bits to clear on entry
+                u32::MAX, // bits to clear on exit
+                &mut notif_value,
+                TickType::new_millis(1000).ticks(),
+            ) == 1;
+        }
+
+        // Handle interrupt
+        if interrupt_occurred || first_run {
+            // TODO how to determine which channel has an
+            match sc16.isr() {
+                Ok(interrupt_kind) => match interrupt_kind {
+                    InterruptEvents::RHR_INTERRUPT => {
+                        log::info!("RHR_INTERRUPT");
+                        try_read = true;
+                    }
+                    InterruptEvents::RECEIVE_LINE_STATUS_ERROR => {
+                        // TODO error-handling?
+                        try_read = true;
+                        log::info!("RECEIVE_LINE_STATUS_ERROR")
+                    }
+                    InterruptEvents::RECEIVE_TIMEOUT_INTERRUPT => {
+                        try_read = true;
+                        log::info!("RECEIVE_TIMEOUT_INTERRUPT")
+                    }
+                    InterruptEvents::THR_INTERRUPT => {
+                        log::info!("THR_INTERRUPT");
+                        try_write = true;
+                    }
+                    InterruptEvents::RECEIVE_XOFF => {
+                        log::info!("RECEIVE_XOFF");
+                    }
+                    InterruptEvents::NO_INTERRUPT => {
+                        // TODO So why are we here?
+                        log::info!("NO_INTERRUPT");
+                    }
+                    InterruptEvents::UNKNOWN => {
+                        // TODO error-handling?
+                        log::error!("UNKNOWN interrupt occured");
+                    }
+                    _ => {
+                        log::info!("Uninterresting Interrupt occurred");
+                    }
+                },
+                Err(err) => {
+                    let s = format!("{:?}", err);
+                    log::error!("Error in isr: {}", s);
                 }
-                led_state = !led_state;
             }
+            if try_read {
+                let available_bytes = sc16.fifo_available_data().unwrap();
+                match sc16.read_cycle(available_bytes as usize) {
+                    Ok(read_bytes) => {
+                        // There could be a race-condition, that between the call of available bytes and the actual reading the size increases,
+                        // but that shouldn't be that bad and could be handled later when parsing the buffer
+                        let buf_str =
+                            buffer_to_string(read_bytes.as_ref(), available_bytes as usize);
+                        log::info!("Device 1: Read {available_bytes} bytes: {buf_str}");
+                    }
+                    Err(_) => {
+                        log::error!("Error when reading {available_bytes} bytes");
+                    }
+                }
+            } else if try_write {
+                // TODO sc16.write_cycle(payload, length)
+            } else {
+                log::warn!("Nothing to do after interrupt");
+            }
+            first_run = false;
+            isr_pin_driver.enable_interrupt().unwrap(); // Reenable interrupt again
+        } else {
+            log::debug!("Timeout");
+
+            match sc16.gpio_set_pin_state(
+                GPIO::GPIO0,
+                if led_state {
+                    PinState::High
+                } else {
+                    PinState::Low
+                },
+            ) {
+                Ok(_) => log::debug!("Toggled LED"),
+                Err(_) => log::warn!("Error toggling LED"),
+            }
+            led_state = !led_state;
         }
     }
 }
@@ -174,6 +186,7 @@ where
     let mut sc16is752 = SC16IS752::new(spi_bus, 1843200.Hz().into(), Channel::A);
     let device_a_config = UartConfig::new(9600, 8, Parity::NoParity, 1);
 
+    // Initialize SC16IS752
     let result: Result<(), SpiError> = (|| {
         sc16is752.ping()?; // TODO error handling
         sc16is752.initialise_uart(device_a_config)?;
@@ -188,6 +201,7 @@ where
         panic!("Creating SC16IS752 failed: {}", s)
     }
 
+    // Put them into parameters to pass to task
     TaskParameter {
         sc16: sc16is752,
         isr_pin_driver: isr_pin_driver,
@@ -209,6 +223,7 @@ pub fn start_spi_task<'d, T, U: Pin>(
     let task_param_ptr = Box::into_raw(task_param_box);
 
     unsafe {
+        // Start task
         let mut task_handle: TaskHandle_t = ptr::null_mut();
         let res = xTaskCreatePinnedToCore(
             Some(spi_task::<T, U>),
@@ -223,6 +238,8 @@ pub fn start_spi_task<'d, T, U: Pin>(
         if res != 1 {
             panic!("Task creation failed");
         }
+
+        // Assign handle for ISR
         TASK_HANDLE = Some(task_handle);
     }
 }
