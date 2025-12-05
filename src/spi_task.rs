@@ -66,8 +66,8 @@ where
 
     // Variables for in-loop-stuff
     let mut notif_value: u32 = 0; // TODO later important for multiple SC16s
-    let mut try_read = false; // Interrupt concerning Receiving occured. Try to read from register
-    let mut try_write = false; // Interrupt concerning Trasnmitting occured. Try to write to register
+    let mut try_read = false; // Interrupt concerning Receiving occurred. Try to read from register
+    let mut try_write = false; // Interrupt concerning Transmitting occurred. Try to write to register
     let mut first_run = true; // In case an interrupt was raised before this task was spawned and xTaskGenericNotifyWait was reached
     let mut led_state = false; // LED-State to toggle
 
@@ -116,10 +116,11 @@ where
                         }
                         InterruptEvents::UNKNOWN => {
                             // TODO error-handling?
-                            log::error!("Device {channel}: UNKNOWN interrupt occured");
+                            log::error!("Device {channel}: UNKNOWN interrupt occurred");
                         }
-                        _ => {
-                            log::info!("Device {channel}: Uninterresting Interrupt occurred");
+                        other => {
+                            let u8_interrupt = other as u8;
+                            log::info!("Device {channel}: Uninteresting Interrupt occurred ({u8_interrupt})");
                         }
                     },
                     Err(err) => {
@@ -138,7 +139,9 @@ where
                             log::info!("Device {channel}: Read {available_bytes} bytes: {buf_str}");
                         }
                         Err(_) => {
-                            log::error!("Error when reading from device {channel}: {available_bytes} bytes");
+                            log::error!(
+                                "Error when reading from device {channel}: {available_bytes} bytes"
+                            );
                         }
                     }
                 } else if try_write {
@@ -189,6 +192,7 @@ where
 
     // Initialize SC16IS752
     let result: Result<(), SpiError> = (|| {
+        sc16is752.reset_device()?;
         sc16is752.gpio_set_pin_mode(GPIO::GPIO0, PinMode::Output)?;
         sc16is752.ping()?; // TODO error handling
 
