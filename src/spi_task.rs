@@ -87,63 +87,65 @@ where
         // Handle interrupt
         if interrupt_occurred || first_run {
             // TODO how to determine which channel has an
-            match sc16.isr() {
-                Ok(interrupt_kind) => match interrupt_kind {
-                    InterruptEvents::RHR_INTERRUPT => {
-                        log::info!("RHR_INTERRUPT");
-                        try_read = true;
-                    }
-                    InterruptEvents::RECEIVE_LINE_STATUS_ERROR => {
-                        // TODO error-handling?
-                        try_read = true;
-                        log::info!("RECEIVE_LINE_STATUS_ERROR")
-                    }
-                    InterruptEvents::RECEIVE_TIMEOUT_INTERRUPT => {
-                        try_read = true;
-                        log::info!("RECEIVE_TIMEOUT_INTERRUPT")
-                    }
-                    InterruptEvents::THR_INTERRUPT => {
-                        log::info!("THR_INTERRUPT");
-                        try_write = true;
-                    }
-                    InterruptEvents::RECEIVE_XOFF => {
-                        log::info!("RECEIVE_XOFF");
-                    }
-                    InterruptEvents::NO_INTERRUPT => {
-                        // TODO So why are we here?
-                        log::info!("NO_INTERRUPT");
-                    }
-                    InterruptEvents::UNKNOWN => {
-                        // TODO error-handling?
-                        log::error!("UNKNOWN interrupt occured");
-                    }
-                    _ => {
-                        log::info!("Uninterresting Interrupt occurred");
-                    }
-                },
-                Err(err) => {
-                    let s = format!("{:?}", err);
-                    log::error!("Error in isr: {}", s);
-                }
-            }
-            if try_read {
-                let available_bytes = sc16.fifo_available_data().unwrap();
-                match sc16.read_cycle(available_bytes as usize) {
-                    Ok(read_bytes) => {
-                        // There could be a race-condition, that between the call of available bytes and the actual reading the size increases,
-                        // but that shouldn't be that bad and could be handled later when parsing the buffer
-                        let buf_str =
-                            buffer_to_string(read_bytes.as_ref(), available_bytes as usize);
-                        log::info!("Device 1: Read {available_bytes} bytes: {buf_str}");
-                    }
-                    Err(_) => {
-                        log::error!("Error when reading {available_bytes} bytes");
+            for channel in [Channel::A, Channel::B] {
+                match sc16.isr(channel) {
+                    Ok(interrupt_kind) => match interrupt_kind {
+                        InterruptEvents::RHR_INTERRUPT => {
+                            log::info!("Device {channel}: RHR_INTERRUPT");
+                            try_read = true;
+                        }
+                        InterruptEvents::RECEIVE_LINE_STATUS_ERROR => {
+                            // TODO error-handling?
+                            try_read = true;
+                            log::info!("Device {channel}: RECEIVE_LINE_STATUS_ERROR")
+                        }
+                        InterruptEvents::RECEIVE_TIMEOUT_INTERRUPT => {
+                            try_read = true;
+                            log::info!("Device {channel}: RECEIVE_TIMEOUT_INTERRUPT")
+                        }
+                        InterruptEvents::THR_INTERRUPT => {
+                            log::info!("Device {channel}: THR_INTERRUPT");
+                            try_write = true;
+                        }
+                        InterruptEvents::RECEIVE_XOFF => {
+                            log::info!("Device {channel}: RECEIVE_XOFF");
+                        }
+                        InterruptEvents::NO_INTERRUPT => {
+                            // Interrupt happend on other channel?
+                            log::info!("Device {channel}: NO_INTERRUPT");
+                        }
+                        InterruptEvents::UNKNOWN => {
+                            // TODO error-handling?
+                            log::error!("Device {channel}: UNKNOWN interrupt occured");
+                        }
+                        _ => {
+                            log::info!("Device {channel}: Uninterresting Interrupt occurred");
+                        }
+                    },
+                    Err(err) => {
+                        let s = format!("{:?}", err);
+                        log::error!("Error in isr: {}", s);
                     }
                 }
-            } else if try_write {
-                // TODO sc16.write_cycle(payload, length)
-            } else {
-                log::warn!("Nothing to do after interrupt");
+                if try_read {
+                    let available_bytes = sc16.fifo_available_data(channel).unwrap();
+                    match sc16.read_cycle(channel, available_bytes as usize) {
+                        Ok(read_bytes) => {
+                            // There could be a race-condition, that between the call of available bytes and the actual reading the size increases,
+                            // but that shouldn't be that bad and could be handled later when parsing the buffer
+                            let buf_str =
+                                buffer_to_string(read_bytes.as_ref(), available_bytes as usize);
+                            log::info!("Device {channel}: Read {available_bytes} bytes: {buf_str}");
+                        }
+                        Err(_) => {
+                            log::error!("Error when reading from device {channel}: {available_bytes} bytes");
+                        }
+                    }
+                } else if try_write {
+                    // TODO sc16.write_cycle(payload, length)
+                } else {
+                    log::warn!("Nothing to do after interrupt of device {channel}");
+                }
             }
             first_run = false;
             isr_pin_driver.enable_interrupt().unwrap(); // Reenable interrupt again
@@ -183,16 +185,24 @@ where
 
     // SC16IS752 setup
     let spi_bus = SC16IS752spi::new(spi_device_driver);
-    let mut sc16is752 = SC16IS752::new(spi_bus, 1843200.Hz().into(), Channel::A);
-    let device_a_config = UartConfig::new(9600, 8, Parity::NoParity, 1);
+    let mut sc16is752 = SC16IS752::new(spi_bus, 1843200.Hz().into());
 
     // Initialize SC16IS752
     let result: Result<(), SpiError> = (|| {
-        sc16is752.ping()?; // TODO error handling
-        sc16is752.initialise_uart(device_a_config)?;
         sc16is752.gpio_set_pin_mode(GPIO::GPIO0, PinMode::Output)?;
+        sc16is752.ping()?; // TODO error handling
+
+        // Initialize Channel A
+        let device_a_config = UartConfig::new(9600, 8, Parity::NoParity, 1);
+        sc16is752.initialise_uart(Channel::A, device_a_config)?;
         let interrupt_bitmask = 0b111;
-        sc16is752.interrupt_control(interrupt_bitmask)?;
+        sc16is752.interrupt_control(Channel::A, interrupt_bitmask)?;
+
+        // Initialize Channel B
+        let device_b_config = UartConfig::new(4800, 8, Parity::Even, 1);
+        sc16is752.initialise_uart(Channel::B, device_b_config)?;
+        let interrupt_bitmask = 0b111;
+        sc16is752.interrupt_control(Channel::B, interrupt_bitmask)?;
         Ok(())
     })();
 
