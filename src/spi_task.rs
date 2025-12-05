@@ -66,8 +66,6 @@ where
 
     // Variables for in-loop-stuff
     let mut notif_value: u32 = 0; // TODO later important for multiple SC16s
-    let mut try_read = false; // Interrupt concerning Receiving occurred. Try to read from register
-    let mut try_write = false; // Interrupt concerning Transmitting occurred. Try to write to register
     let mut first_run = true; // In case an interrupt was raised before this task was spawned and xTaskGenericNotifyWait was reached
     let mut led_state = false; // LED-State to toggle
 
@@ -88,6 +86,9 @@ where
         if interrupt_occurred || first_run {
             // TODO how to determine which channel has an
             for channel in [Channel::A, Channel::B] {
+                let mut try_read = false; // Interrupt concerning Receiving occurred. Try to read from register
+                let mut try_write = false; // Interrupt concerning Transmitting occurred. Try to write to register
+
                 match sc16.isr(channel) {
                     Ok(interrupt_kind) => match interrupt_kind {
                         InterruptEvents::RHR_INTERRUPT => {
@@ -107,11 +108,8 @@ where
                             log::info!("Device {channel}: THR_INTERRUPT");
                             try_write = true;
                         }
-                        InterruptEvents::RECEIVE_XOFF => {
-                            log::info!("Device {channel}: RECEIVE_XOFF");
-                        }
                         InterruptEvents::NO_INTERRUPT => {
-                            // Interrupt happend on other channel?
+                            // Interrupt happened on other channel?
                             log::info!("Device {channel}: NO_INTERRUPT");
                         }
                         InterruptEvents::UNKNOWN => {
@@ -147,7 +145,7 @@ where
                 } else if try_write {
                     // TODO sc16.write_cycle(payload, length)
                 } else {
-                    log::warn!("Nothing to do after interrupt of device {channel}");
+                    log::debug!("Nothing to do after interrupt of device {channel}");
                 }
             }
             first_run = false;
