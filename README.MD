@@ -1,6 +1,6 @@
 # Setup
 ## Setup USBIPD
-### Windows Powershell (as admin)#
+### Windows Powershell (as admin)
 #### Search device to use
 ``usbipd list``
 
@@ -8,7 +8,7 @@
 ``usbipd bind --busid <bus_id>``
 
 #### Attach
-``usbipd bind --wsl --busid <bus_id>``
+``usbipd attach --wsl --busid <bus_id>``
 
 ### In WSL
 ``sudo chmod 666 /dev/ttyUSB<id>``
