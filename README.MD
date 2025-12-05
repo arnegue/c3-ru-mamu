@@ -40,11 +40,12 @@ In this project it looks like this:
 Interface-Tasks | Translation-Tasks |      DataBase
 _______________________________________________________
                 ┌──[NMEA1 Task ]──┐
-[SPI Task]──────│  [NMEA2 Task ]  │
-                │  [NMEA3 Task ]  │───[Ship DataBase]
-                └──[Setalk Task]  │
+[SPI Task1]─────└──[NMEA2 Task ]  │
+                ┌──[NMEA3 Task ]  │───[Ship DataBase]
+[SPI Task2]─────└──[NMEA4 Task ]  │
+[UART Task]────────[Seatalk Task] │
 [TWI Task]─────────[NMEA2K Task]  │
-[WiFi Task]────────[NMEA4 Task ]──┘
+[WiFi Task]────────[NMEA5 Task ]──┘
 ```
 
 ## Handling of one Interface Task to many Translation tasks
@@ -55,17 +56,17 @@ This pattern solves:
 * Zero mutex use inside ISR
 
 ```
-                  ┌────────────────┐
-          IRQ --->│   SPI ISR      │   (very fast)
-                  └──────┬─────────┘
-                         │ signals
-                         ▼
-                    ┌──────────┐
-                    │ SPI Task │   (reads SPI FIFO / registers)
-                    └────┬─────┘
-                         │ distributes data
-                         ▼
-    ┌─────────────┬──────────────┬──────────────┐
-    ▼             ▼              ▼              ▼
-NMEA1 Task   NMEA2 Task     NMEA3 Task     Seatalk-task
+        ┌───────────┐
+IRQ --->│  SPI ISR  │   (very fast)
+        └─────┬─────┘
+              │ signals
+              ▼
+        ┌───────────┐
+        │ SPIx Task │   (reads SPI registers | depending on channel-interrupt data will be provided to its task)
+        └─────┬─────┘
+              │ distributes data
+              ▼
+       ┌─────────────┐
+       ▼             ▼
+   NMEA<A> Task   NMEA<B> Task
 ```
