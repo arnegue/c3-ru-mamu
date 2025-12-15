@@ -6,7 +6,10 @@ use esp_idf_hal::spi::*;
 use esp_idf_hal::units::*;
 
 mod led_task;
+mod message_parser;
+mod parser;
 mod spi_task;
+mod telemetry_data;
 
 fn main() {
     // ESP-IDF initialization stuff
@@ -28,6 +31,7 @@ fn main() {
         SpiDriver::new::<SPI2>(spi, sclk, mosi, Some(miso), &SpiDriverConfig::new()).unwrap();
     let config = config::Config::new().baudrate(1.MHz().into());
     let device_driver = SpiDeviceDriver::new(&driver, Some(cs), &config).unwrap();
+
     // SPI isr-pin
     let isr_pin_driver = PinDriver::input(isr_pin).unwrap();
     start_spi_task(device_driver, isr_pin_driver);
