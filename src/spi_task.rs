@@ -1,3 +1,4 @@
+use crate::utils::buffer_to_string;
 use esp_idf_hal::spi::SpiError;
 use esp_idf_hal::units::*;
 use esp_idf_hal::{
@@ -254,13 +255,4 @@ pub fn start_spi_task<'d, T, U: Pin>(
         // Assign handle for ISR
         TASK_HANDLE = Some(task_handle);
     }
-}
-
-// Simple u8-buffer to string converter
-fn buffer_to_string(buffer: &[u8], size: usize) -> String {
-    let mut result = String::new();
-    for i in 0..size {
-        result.push(buffer[i] as char);
-    }
-    result
 }

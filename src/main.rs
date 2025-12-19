@@ -1,12 +1,16 @@
-use crate::led_task::start_led_task;
-use crate::spi_task::start_spi_task;
-use esp_idf_hal::delay::FreeRtos;
-use esp_idf_hal::gpio::PinDriver;
-use esp_idf_hal::spi::*;
-use esp_idf_hal::units::*;
-
 mod led_task;
 mod spi_task;
+mod uart_task;
+mod utils;
+
+use crate::led_task::start_led_task;
+use crate::spi_task::start_spi_task;
+use crate::uart_task::start_uart_task;
+use esp_idf_hal::delay::FreeRtos;
+use esp_idf_hal::gpio::{self, PinDriver};
+use esp_idf_hal::spi::{SPI2, SpiDeviceDriver, SpiDriver, SpiDriverConfig};
+use esp_idf_hal::uart::UartDriver;
+use esp_idf_hal::units::{Hertz, MegaHertz};
 
 fn main() {
     // ESP-IDF initialization stuff
@@ -15,22 +19,37 @@ fn main() {
     use esp_idf_hal::peripherals::Peripherals;
 
     let peripherals = Peripherals::take().unwrap();
+    
+    // SPI-Task
     let spi = peripherals.spi2;
-
     let sclk = peripherals.pins.gpio5; // CLK
     let miso = peripherals.pins.gpio7; // SDI
     let mosi = peripherals.pins.gpio8; // SDO
     let cs = peripherals.pins.gpio3; // CS (old device is pin 6)
     let isr_pin = peripherals.pins.gpio2; // IRQ
 
-    // SPI only
     let driver =
         SpiDriver::new::<SPI2>(spi, sclk, mosi, Some(miso), &SpiDriverConfig::new()).unwrap();
-    let config = config::Config::new().baudrate(1.MHz().into());
+    let config = esp_idf_hal::spi::config::Config::new().baudrate(MegaHertz(1).into());
     let device_driver = SpiDeviceDriver::new(&driver, Some(cs), &config).unwrap();
     // SPI isr-pin
     let isr_pin_driver = PinDriver::input(isr_pin).unwrap();
     start_spi_task(device_driver, isr_pin_driver);
+
+    // UART-Task
+    let tx = peripherals.pins.gpio12;
+    let rx = peripherals.pins.gpio13;
+    let config = esp_idf_hal::uart::config::Config::new().baudrate(Hertz(4800));
+    let uart = UartDriver::new(
+        peripherals.uart1,
+        tx,
+        rx,
+        Option::<gpio::Gpio0>::None,
+        Option::<gpio::Gpio1>::None,
+        &config,
+    ).unwrap();
+
+    start_uart_task(uart);
 
     // LED-Task
     let led_pin = peripherals.pins.gpio0;
