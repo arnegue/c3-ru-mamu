@@ -6,6 +6,8 @@ use std::{ffi::CString, ptr};
 
 use crate::utils::buffer_to_string;
 
+const TASK_NAME: &str = "UART-Task";
+
 // UART-Task which reads and writes from/to UART
 extern "C" fn uart_task(param: *mut core::ffi::c_void) {
     // Task-Parameters
@@ -20,18 +22,15 @@ extern "C" fn uart_task(param: *mut core::ffi::c_void) {
         match uart_driver.read(&mut read_buf, TickType::new_millis(1000).ticks()) {
             Ok(amount_bytes) => {
                 if amount_bytes > 0 {
-                    log::info!(
-                        "Read {} bytes_ {}",
-                        amount_bytes,
-                        buffer_to_string(&read_buf, amount_bytes)
-                    );
+                    let buf_str = buffer_to_string(&read_buf, amount_bytes);
+                    log::info!("{TASK_NAME}: Read {amount_bytes} bytes: {buf_str}");
                 } else {
-                    log::debug!("Timeout when reading from UART-Task");
+                    log::debug!("{TASK_NAME}: Timeout when reading");
                 }
             }
             Err(esp_err) => {
                 let s = format!("{:?}", esp_err);
-                log::error!("Error in UART-Read-Task: {}", s);
+                log::error!("{TASK_NAME} Error in Read-Task: {s}");
             }
         }
     }
@@ -48,7 +47,7 @@ pub fn start_uart_task(uart_driver: UartDriver) {
         let mut task_handle: TaskHandle_t = ptr::null_mut();
         let res = xTaskCreatePinnedToCore(
             Some(uart_task),
-            CString::new("UART Task").unwrap().as_ptr(),
+            CString::new(TASK_NAME).unwrap().as_ptr(),
             5000,
             task_param_ptr as *mut core::ffi::c_void,
             10,
@@ -57,7 +56,7 @@ pub fn start_uart_task(uart_driver: UartDriver) {
         );
 
         if res != 1 {
-            panic!("Task creation failed");
+            panic!("{TASK_NAME}: Task creation failed");
         }
     }
 }

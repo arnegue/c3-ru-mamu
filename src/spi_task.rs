@@ -14,6 +14,8 @@ use sc16is752::{
 };
 use std::{borrow::Borrow, ffi::CString, ptr};
 
+const TASK_NAME: &str = "LED-Task";
+
 // Task handle for SPI task (needed by ISR)
 static mut TASK_HANDLE: Option<TaskHandle_t> = None;
 
@@ -93,38 +95,40 @@ where
                 match sc16.isr(channel) {
                     Ok(interrupt_kind) => match interrupt_kind {
                         InterruptEvents::RHR_INTERRUPT => {
-                            log::info!("Device {channel}: RHR_INTERRUPT");
+                            log::info!("{TASK_NAME}: Device {channel}: RHR_INTERRUPT");
                             try_read = true;
                         }
                         InterruptEvents::RECEIVE_LINE_STATUS_ERROR => {
                             // TODO error-handling?
                             try_read = true;
-                            log::info!("Device {channel}: RECEIVE_LINE_STATUS_ERROR")
+                            log::info!("{TASK_NAME}: Device {channel}: RECEIVE_LINE_STATUS_ERROR")
                         }
                         InterruptEvents::RECEIVE_TIMEOUT_INTERRUPT => {
                             try_read = true;
-                            log::info!("Device {channel}: RECEIVE_TIMEOUT_INTERRUPT")
+                            log::info!("{TASK_NAME}: Device {channel}: RECEIVE_TIMEOUT_INTERRUPT")
                         }
                         InterruptEvents::THR_INTERRUPT => {
-                            log::info!("Device {channel}: THR_INTERRUPT");
+                            log::info!("{TASK_NAME}: Device {channel}: THR_INTERRUPT");
                             try_write = true;
                         }
                         InterruptEvents::NO_INTERRUPT => {
                             // Interrupt happened on other channel?
-                            log::info!("Device {channel}: NO_INTERRUPT");
+                            log::info!("{TASK_NAME}: Device {channel}: NO_INTERRUPT");
                         }
                         InterruptEvents::UNKNOWN => {
                             // TODO error-handling?
-                            log::error!("Device {channel}: UNKNOWN interrupt occurred");
+                            log::error!(
+                                "{TASK_NAME}: Device {channel}: UNKNOWN interrupt occurred"
+                            );
                         }
                         other => {
                             let u8_interrupt = other as u8;
-                            log::info!("Device {channel}: Uninteresting Interrupt occurred ({u8_interrupt})");
+                            log::info!("{TASK_NAME}: Device {channel}: Uninteresting Interrupt occurred ({u8_interrupt})");
                         }
                     },
                     Err(err) => {
                         let s = format!("{:?}", err);
-                        log::error!("Error in isr: {}", s);
+                        log::error!("{TASK_NAME}: Error in isr: {s}");
                     }
                 }
                 if try_read {
@@ -135,24 +139,24 @@ where
                             // but that shouldn't be that bad and could be handled later when parsing the buffer
                             let buf_str =
                                 buffer_to_string(read_bytes.as_ref(), available_bytes as usize);
-                            log::info!("Device {channel}: Read {available_bytes} bytes: {buf_str}");
+                            log::info!("{TASK_NAME}: Device {channel}: Read {available_bytes} bytes: {buf_str}");
                         }
                         Err(_) => {
                             log::error!(
-                                "Error when reading from device {channel}: {available_bytes} bytes"
+                                "{TASK_NAME} Error when reading from device {channel}: {available_bytes} bytes"
                             );
                         }
                     }
                 } else if try_write {
                     // TODO sc16.write_cycle(payload, length)
                 } else {
-                    log::debug!("Nothing to do after interrupt of device {channel}");
+                    log::debug!("{TASK_NAME}: Nothing to do after interrupt of device {channel}");
                 }
             }
             first_run = false;
             isr_pin_driver.enable_interrupt().unwrap(); // Reenable interrupt again
         } else {
-            log::debug!("Timeout");
+            log::debug!("{TASK_NAME}: Timeout");
 
             match sc16.gpio_set_pin_state(
                 GPIO::GPIO0,
@@ -162,8 +166,8 @@ where
                     PinState::Low
                 },
             ) {
-                Ok(_) => log::debug!("Toggled LED"),
-                Err(_) => log::warn!("Error toggling LED"),
+                Ok(_) => log::debug!("{TASK_NAME}: Toggled LED"),
+                Err(_) => log::warn!("{TASK_NAME}: Error toggling LED"),
             }
             led_state = !led_state;
         }
@@ -211,7 +215,7 @@ where
 
     if result.is_err() {
         let s = format!("{:?}", result.err());
-        panic!("Creating SC16IS752 failed: {}", s)
+        panic!("{TASK_NAME}: Creating SC16IS752 failed: {s}")
     }
 
     // Put them into parameters to pass to task
@@ -249,7 +253,7 @@ pub fn start_spi_task<'d, T, U: Pin>(
         );
 
         if res != 1 {
-            panic!("Task creation failed");
+            panic!("{TASK_NAME}: Task creation failed");
         }
 
         // Assign handle for ISR

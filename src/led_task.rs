@@ -5,6 +5,8 @@ use esp_idf_hal::{
 };
 use std::{ffi::CString, ptr};
 
+const TASK_NAME: &str = "LED-Task";
+
 extern "C" fn led_task<T: Pin>(param: *mut core::ffi::c_void) {
     unsafe {
         // Cast back to the full PinDriver type
@@ -12,7 +14,7 @@ extern "C" fn led_task<T: Pin>(param: *mut core::ffi::c_void) {
             &mut *(param as *mut PinDriver<'static, T, Output>);
         loop {
             led.toggle().unwrap();
-            log::debug!("Toggled LED");
+            log::debug!("{TASK_NAME}: Toggled LED");
             FreeRtos::delay_ms(500);
         }
     }
@@ -25,7 +27,7 @@ pub fn start_led_task<T: Pin>(pin: PinDriver<'static, T, Output>) {
     unsafe {
         let res = xTaskCreatePinnedToCore(
             Some(led_task::<T>),
-            CString::new("LED Task").unwrap().as_ptr(),
+            CString::new(TASK_NAME).unwrap().as_ptr(),
             1000,
             pin_raw as *mut core::ffi::c_void,
             10,
@@ -34,7 +36,7 @@ pub fn start_led_task<T: Pin>(pin: PinDriver<'static, T, Output>) {
         );
 
         if res != 1 {
-            panic!("Task creation failed");
+            panic!("{TASK_NAME}: Task creation failed");
         }
     }
 }
