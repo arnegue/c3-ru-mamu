@@ -19,7 +19,7 @@ extern "C" fn uart_task(param: *mut core::ffi::c_void) {
 
     let mut read_buf: [u8; 255] = [0; 255];
     loop {
-        match uart_driver.read(&mut read_buf, TickType::new_millis(1000).ticks()) {
+        match uart_driver.read(&mut read_buf, TickType::new_millis(10000).ticks()) {
             Ok(amount_bytes) => {
                 if amount_bytes > 0 {
                     let buf_str = buffer_to_string(&read_buf, amount_bytes);
