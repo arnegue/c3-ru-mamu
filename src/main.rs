@@ -2,6 +2,7 @@ mod led_task;
 mod spi_task;
 mod uart_task;
 mod utils;
+mod bit_banged_uart;
 
 use crate::led_task::start_led_task;
 use crate::spi_task::start_spi_task;
