@@ -13,7 +13,6 @@ use esp_idf_hal::{
     units::Hertz,
 };
 use esp_idf_sys::esp_rom_delay_us;
-//extern gptimer_handle_t clk_timer{}
 
 #[derive(PartialEq)]
 pub enum ParityType {
@@ -27,15 +26,13 @@ pub enum ParityType {
 pub struct BitBangedUART<RX: esp_idf_hal::gpio::Pin, TX: esp_idf_hal::gpio::Pin> {
     rx_pin: PinDriver<'static, RX, Input>,  // RX Pin for UART
     tx_pin: PinDriver<'static, TX, Output>, // TX Pin for UART
-    baud_rate: Hertz,                       // Baud rate for communication
     parity: ParityType,                     // Parity Type
-    data_frame_size: u32,                   // Data frame size in bits (5-8)
+    data_frame_size: u8,                    // Data frame size in bits (0-16, anything that fits into u16)
 
     sleep_time_per_bit_ms: u32, // Waiting time before sending another bit
 }
 
 /// Bit banging serial communication (USART) device
-
 impl<RX: esp_idf_hal::gpio::Pin, TX: esp_idf_hal::gpio::Pin> BitBangedUART<RX, TX> {
     // Creates new instance
     pub fn new(
@@ -43,7 +40,7 @@ impl<RX: esp_idf_hal::gpio::Pin, TX: esp_idf_hal::gpio::Pin> BitBangedUART<RX, T
         tx_pin: PinDriver<'static, TX, Output>,
         baud_rate: Hertz,
         parity: ParityType,
-        data_frame_size: u32,
+        data_frame_size: u8,
     ) -> Self {
         let sleep_time_per_bit_ms = (1000u32 * 1000u32) / u32::from(baud_rate) as u32;
         log::info!("SleepTime: {sleep_time_per_bit_ms} ms");
@@ -51,7 +48,6 @@ impl<RX: esp_idf_hal::gpio::Pin, TX: esp_idf_hal::gpio::Pin> BitBangedUART<RX, T
         Self {
             rx_pin,
             tx_pin,
-            baud_rate,
             parity,
             data_frame_size,
             sleep_time_per_bit_ms: sleep_time_per_bit_ms,
@@ -71,15 +67,15 @@ impl<RX: esp_idf_hal::gpio::Pin, TX: esp_idf_hal::gpio::Pin> BitBangedUART<RX, T
         unsafe { esp_rom_delay_us(self.sleep_time_per_bit_ms) };
     }
 
-    // Writes given byte
-    pub fn write(&mut self, byte: u8) {
+    // Writes given word
+    pub fn write(&mut self, byte: u16) {
         let mut data_out = byte;
 
         // start bit
         self.send_bit(false);
 
         // data
-        for _bit in 0..8 {
+        for _bit in 0..self.data_frame_size {
             self.send_bit(data_out & 1 == 1);
             data_out >>= 1;
         }
@@ -109,8 +105,8 @@ impl<RX: esp_idf_hal::gpio::Pin, TX: esp_idf_hal::gpio::Pin> BitBangedUART<RX, T
         self.send_bit(true);
     }
 
-    // Reads a byte
-    pub fn read(&mut self) -> u8 {
+    // Reads a word
+    pub fn read(&mut self) -> u16 {
         let mut data_in = 0;
 
         // wait for start bit
@@ -118,7 +114,7 @@ impl<RX: esp_idf_hal::gpio::Pin, TX: esp_idf_hal::gpio::Pin> BitBangedUART<RX, T
         self.wait_for_timer();
 
         // wait for data
-        for _bit in 0..8 {
+        for _bit in 0..self.data_frame_size {
             data_in <<= 1;
             if self.rx_pin.is_high() {
                 data_in |= 1

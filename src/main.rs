@@ -66,17 +66,17 @@ fn main() {
     start_led_task(led);
 
     // Main loop
-    let mut counter: u8 = 0;
+    let mut counter: u16 = 0;
     loop {
         log::info!("Main-Delay");
         for byte in b"Hello, World! " {
-            bbu.write(*byte);
+            bbu.write(*byte as u16);
         }
         bbu.write(counter);
         counter += 1;
 
         for byte in b"\r\n" {
-            bbu.write(*byte);
+            bbu.write(*byte as u16);
         }
         FreeRtos::delay_ms(1000);
     }
