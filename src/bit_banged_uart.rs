@@ -24,7 +24,7 @@ pub enum ParityType {
     PARITY_ODD = 1,
     PARITY_EVEN = 2,
     PARITY_SPACE = 3,
-    PARTY_MARK = 4
+    PARTY_MARK = 4,
 }
 
 #[derive(Clone, Copy)]
@@ -34,7 +34,7 @@ pub enum BAUD_RATE {
     BAUD_RATE_19200 = 19200,
     BAUD_RATE_38400 = 38400,
     BAUD_RATE_57600 = 57600,
-    BAUD_RATE_115200 =115200,
+    BAUD_RATE_115200 = 115200,
     BAUD_RATE_125000 = 125000,
 }
 
@@ -89,8 +89,12 @@ impl<RX: esp_idf_hal::gpio::Pin, TX: esp_idf_hal::gpio::Pin> BitBangedUART<RX, T
 
     pub fn write(&mut self, byte: u8) -> Result<(), Error> {
         let mut data_out = byte;
-        self.tx_pin.set_low(); // start bit
+
+        // start bit
+        self.tx_pin.set_low();
         self.wait_for_timer();
+
+        // data
         for _bit in 0..8 {
             if data_out & 1 == 1 {
                 self.tx_pin.set_high();
@@ -100,16 +104,46 @@ impl<RX: esp_idf_hal::gpio::Pin, TX: esp_idf_hal::gpio::Pin> BitBangedUART<RX, T
             data_out >>= 1;
             self.wait_for_timer();
         }
-        self.tx_pin.set_high(); // stop bit
+
+        // parity
+        match self.parity {
+            ParityType::PARITY_NONE => {
+                // Do nothing
+            }
+            ParityType::PARITY_ODD => {
+                let parity = byte.count_ones() % 2;
+                self.tx_pin.set_level((parity == 0).into());
+                self.wait_for_timer();
+            }
+            ParityType::PARITY_EVEN => {
+                let parity = byte.count_ones() % 2;
+                self.tx_pin.set_level((parity == 1).into());
+                self.wait_for_timer();
+            }
+            ParityType::PARITY_SPACE => {
+                self.tx_pin.set_low();
+                self.wait_for_timer();
+            }
+            ParityType::PARTY_MARK => {
+                self.tx_pin.set_high();
+                self.wait_for_timer();
+            }
+        }
+
+        // stop bit
+        self.tx_pin.set_high();
         self.wait_for_timer();
         Ok(())
     }
 
     pub fn read(&mut self) -> Result<u8, Error> {
         let mut data_in = 0;
+
         // wait for start bit
         while self.rx_pin.is_high() {}
         self.wait_for_timer();
+
+        // wait for data
         for _bit in 0..8 {
             data_in <<= 1;
             if self.rx_pin.is_high() {
@@ -117,6 +151,14 @@ impl<RX: esp_idf_hal::gpio::Pin, TX: esp_idf_hal::gpio::Pin> BitBangedUART<RX, T
             }
             self.wait_for_timer();
         }
+
+        // wait for parity
+        if self.parity != ParityType::PARITY_NONE{
+            // TODO ignore parity value for now
+            self.wait_for_timer();
+
+        }
+
         // wait for stop bit
         self.wait_for_timer();
         Ok(data_in)
