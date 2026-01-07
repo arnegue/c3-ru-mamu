@@ -4,7 +4,7 @@ mod spi_task;
 mod uart_task;
 mod utils;
 
-use crate::bit_banged_uart::{BitBangedUART, ParityType, BAUD_RATE};
+use crate::bit_banged_uart::{BitBangedUART, ParityType, };
 use crate::led_task::start_led_task;
 use crate::spi_task::start_spi_task;
 use crate::uart_task::start_uart_task;
@@ -33,6 +33,7 @@ fn main() {
     let cs = peripherals.pins.gpio3; // CS (old device is pin 6)
     let isr_pin = peripherals.pins.gpio2; // IRQ
 
+
     let driver =
         SpiDriver::new::<SPI2>(spi, sclk, mosi, Some(miso), &SpiDriverConfig::new()).unwrap();
     let config = esp_idf_hal::spi::config::Config::new().baudrate(MegaHertz(1).into());
@@ -53,8 +54,8 @@ fn main() {
     let mut bbu = BitBangedUART::new(
         PinDriver::input(rx).unwrap(),
         tx_pin,
-        BAUD_RATE::BAUD_RATE_4800,
-        ParityType::PARITY_NONE,
+        Hertz(4800),
+        ParityType::PARITY_EVEN,
         8,
     );
 
@@ -65,10 +66,17 @@ fn main() {
     start_led_task(led);
 
     // Main loop
+    let mut counter: u8 = 0;
     loop {
         log::info!("Main-Delay");
-        for byte in b"Hello, World!\r\n" {
-            bbu.write(*byte).unwrap();
+        for byte in b"Hello, World! " {
+            bbu.write(*byte);
+        }
+        bbu.write(counter);
+        counter += 1;
+
+        for byte in b"\r\n" {
+            bbu.write(*byte);
         }
         FreeRtos::delay_ms(1000);
     }

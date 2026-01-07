@@ -9,13 +9,10 @@
 //!
 
 use esp_idf_hal::{
-    delay::FreeRtos,
-    gpio::{Input, Level, Output, PinDriver},
-    peripheral::Peripheral,
-    prelude::Peripherals,
-    timer::{self, Timer, TimerConfig, TimerDriver},
+    gpio::{Input, Output, PinDriver},
+    units::Hertz,
 };
-use esp_idf_sys::{esp_rom_delay_us, gpio_set_level};
+use esp_idf_sys::esp_rom_delay_us;
 //extern gptimer_handle_t clk_timer{}
 
 #[derive(PartialEq)]
@@ -27,49 +24,28 @@ pub enum ParityType {
     PARTY_MARK = 4,
 }
 
-#[derive(Clone, Copy)]
-pub enum BAUD_RATE {
-    BAUD_RATE_4800 = 4800,
-    BAUD_RATE_9600 = 9600,
-    BAUD_RATE_19200 = 19200,
-    BAUD_RATE_38400 = 38400,
-    BAUD_RATE_57600 = 57600,
-    BAUD_RATE_115200 = 115200,
-    BAUD_RATE_125000 = 125000,
-}
-
 pub struct BitBangedUART<RX: esp_idf_hal::gpio::Pin, TX: esp_idf_hal::gpio::Pin> {
     rx_pin: PinDriver<'static, RX, Input>,  // RX Pin for UART
     tx_pin: PinDriver<'static, TX, Output>, // TX Pin for UART
-    baud_rate: BAUD_RATE,                   // Baud rate for communication
+    baud_rate: Hertz,                       // Baud rate for communication
     parity: ParityType,                     // Parity Type
     data_frame_size: u32,                   // Data frame size in bits (5-8)
 
     sleep_time_per_bit_ms: u32, // Waiting time before sending another bit
 }
 
-/// Serial communication error type
-#[derive(Debug)]
-pub enum Error {
-    /// Bus error
-    ParityError,
-    SendError,
-}
-
 /// Bit banging serial communication (USART) device
 
 impl<RX: esp_idf_hal::gpio::Pin, TX: esp_idf_hal::gpio::Pin> BitBangedUART<RX, TX> {
-    /// Create instance
-
     // Creates new instance
     pub fn new(
         rx_pin: PinDriver<'static, RX, Input>,
         tx_pin: PinDriver<'static, TX, Output>,
-        baud_rate: BAUD_RATE,
+        baud_rate: Hertz,
         parity: ParityType,
         data_frame_size: u32,
     ) -> Self {
-        let sleep_time_per_bit_ms = (1000u32 * 1000u32) / baud_rate as u32;
+        let sleep_time_per_bit_ms = (1000u32 * 1000u32) / u32::from(baud_rate) as u32;
         log::info!("SleepTime: {sleep_time_per_bit_ms} ms");
 
         Self {
@@ -96,12 +72,12 @@ impl<RX: esp_idf_hal::gpio::Pin, TX: esp_idf_hal::gpio::Pin> BitBangedUART<RX, T
     }
 
     // Writes given byte
-    pub fn write(&mut self, byte: u8) -> Result<(), Error> {
+    pub fn write(&mut self, byte: u8) {
         let mut data_out = byte;
 
         // start bit
         self.send_bit(false);
-        
+
         // data
         for _bit in 0..8 {
             self.send_bit(data_out & 1 == 1);
@@ -131,12 +107,10 @@ impl<RX: esp_idf_hal::gpio::Pin, TX: esp_idf_hal::gpio::Pin> BitBangedUART<RX, T
 
         // stop bit
         self.send_bit(true);
-        
-        Ok(())
     }
 
     // Reads a byte
-    pub fn read(&mut self) -> Result<u8, Error> {
+    pub fn read(&mut self) -> u8 {
         let mut data_in = 0;
 
         // wait for start bit
@@ -160,6 +134,6 @@ impl<RX: esp_idf_hal::gpio::Pin, TX: esp_idf_hal::gpio::Pin> BitBangedUART<RX, T
 
         // wait for stop bit
         self.wait_for_timer();
-        Ok(data_in)
+        data_in
     }
 }
