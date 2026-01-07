@@ -1,14 +1,16 @@
+mod bit_banged_uart;
 mod led_task;
 mod spi_task;
 mod uart_task;
 mod utils;
-mod bit_banged_uart;
 
+use crate::bit_banged_uart::{BitBangedUART, ParityType, BAUD_RATE};
 use crate::led_task::start_led_task;
 use crate::spi_task::start_spi_task;
 use crate::uart_task::start_uart_task;
+
 use esp_idf_hal::delay::FreeRtos;
-use esp_idf_hal::gpio::{self, PinDriver};
+use esp_idf_hal::gpio::PinDriver;
 use esp_idf_hal::spi::{SpiDeviceDriver, SpiDriver, SpiDriverConfig, SPI2};
 use esp_idf_hal::uart::config::{DataBits, EventConfig, EventFlags, Parity, StopBits};
 use esp_idf_hal::uart::UartDriver;
@@ -45,25 +47,16 @@ fn main() {
     let uart_rx_queue: Queue<u8>;
     let tx = peripherals.pins.gpio18;
     let rx = peripherals.pins.gpio19;
-    let mut config = esp_idf_hal::uart::config::Config::default();
-    config.baudrate = Hertz(4800);
-    config.data_bits = DataBits::DataBits8;
-    config.parity = Parity::ParityEven;
-    config.stop_bits = StopBits::STOP1;
-    config.event_config = EventConfig::new();
-    config.event_config.flags.insert(EventFlags::ParityError);
 
-    let uart = UartDriver::new(
-        peripherals.uart1,
-        tx,
-        rx,
-        Option::<gpio::Gpio0>::None,
-        Option::<gpio::Gpio1>::None,
-        &config,
-    )
-    .unwrap();
-
-    start_uart_task(uart);
+    let tx_pin: PinDriver<'static, esp_idf_hal::gpio::Gpio18, esp_idf_hal::gpio::Output> =
+        PinDriver::output(tx).unwrap();
+    let mut bbu = BitBangedUART::new(
+        PinDriver::input(rx).unwrap(),
+        tx_pin,
+        BAUD_RATE::BAUD_RATE_4800,
+        ParityType::PARITY_NONE,
+        8,
+    );
 
     // LED-Task
     let led_pin = peripherals.pins.gpio0;
@@ -73,7 +66,10 @@ fn main() {
 
     // Main loop
     loop {
-        log::debug!("Main-Delay");
+        log::info!("Main-Delay");
+        for byte in b"Hello, World!\r\n" {
+            bbu.write(*byte).unwrap();
+        }
         FreeRtos::delay_ms(1000);
     }
 }
